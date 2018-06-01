@@ -1,4 +1,4 @@
-host: localhost
+host: localhost 
 target:
     simple: 
         port: 10000
@@ -65,3 +65,11 @@ log_config:
     join_error: /home/houlu/lora/log/lora-join-server/ERROR.log
     application: /home/houlu/lora/log/lora-application-server.log
     simple: /home/houlu/lora/log/lora-simple-server.log
+
+database:
+    mysql:
+        user: ic2
+        password: ic2@iot
+        host: localhost
+        database: iot_test
+

@@ -7,7 +7,10 @@ from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
 from Crypto.Util import Padding
 
+from motes import db_connector as db
+
 # import pdb
+GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
 
 class BytesOperation:
@@ -91,7 +94,7 @@ class GatewayOp(BytesOperation):
 
         self._default_stat = {
             "stat": {
-                "time": str(time.time()),
+                "time": time.strftime(GMTformat, time.localtime()),
                 "rxnb": 1,
                 "rxok": 0,
                 "rxfw": 0,
@@ -114,18 +117,20 @@ class GatewayOp(BytesOperation):
     def stat_attributes(self):
         return self._stat_attributes
 
-    def _add_data_to_rxpk(self, rxpk, data):
+    def _add_data_to_rxpk(self, rxpk, data, data_size=17):
+        rxpk['rxpk'][0]['size'] = data_size
         rxpk['rxpk'][0]['data'] = data
         return rxpk
 
     def form_gateway_data(self, data=None, enc=False, rxpk=None, stat=None):
+        data_size = len(data) // 2
         if data is None:
             data = self._default_data
         else:
             if enc:
                 data = self._b64data(data)
         if rxpk is None:
-            rxpk = self._add_data_to_rxpk(self._default_rxpk, data)
+            rxpk = self._add_data_to_rxpk(self._default_rxpk, data, data_size)
         if stat is None:
             stat = self._default_stat
         rxpk.update(stat)
@@ -193,9 +198,37 @@ class GatewayOp(BytesOperation):
         rxpk = self._add_data_to_rxpk(rxpk=self._default_rxpk, data=raw_data)
         return rxpk
 
+    def get_txpk_data(self, txpk):
+        macpayload = base64.b64decode(txpk.get('data'))
+        print(macpayload)
+        MHDR = macpayload[0:1]
+        DevAddr = macpayload[1:5]
+        FCtrl = macpayload[5:6]
+        FOptsLen = (ord(FCtrl) & 0b1111)
+        FCnt = macpayload[6:8]
+        FOpts = macpayload[8:8+FOptsLen]
+        log_json = {
+            'MHDR': MHDR.hex(),
+            'DevAddr': DevAddr.hex(),
+            'FCtrl': FCtrl.hex(),
+            'FOptsLen': FOptsLen,
+            'FCnt': FCnt.hex(),
+            'FOpts': FOpts.hex(),
+        }
+        pprint(log_json)
+
+    def parse_dlk(self, downlink):
+        if downlink[3] in (1, 4):
+            return None
+        else:
+            txpk = downlink[4:]
+            txpk_json = json.loads(txpk.decode('ascii'))
+            return txpk_json.get('txpk')
+
 
 class DeviceOp(BytesOperation):
-    def __init__(self):
+    def __init__(self, database_conf):
+        self.database_conf = database_conf
         self._attributes = [
             'DevAddr',
             'MHDR',
@@ -251,8 +284,7 @@ class DeviceOp(BytesOperation):
         if len(FCnt) == 8:
             FCnt = FCnt[4:]
         FCnt = DeviceOp.str_rev(FCnt)
-        FOpts = DeviceOp.str_rev(FOpts)
-        FCtrl['FOptsLen'] = len(FOpts)
+        FCtrl['FOptsLen'] = len(FOpts) // 2
         FCtrl = DeviceOp.form_FCtrl(**FCtrl)
         return '{}{}{}{}'.format(DevAddr, FCtrl, FCnt, FOpts)
 
@@ -311,6 +343,24 @@ class DeviceOp(BytesOperation):
             S += Si
         return b''.join(DeviceOp.bytes_xor(S, payload))[:pld_len * 2 + 1]
 
+    def get_keys(self, DevAddr, key_list=None):
+        if not key_list:
+            key_list = [
+                'NwkSKey',
+                'AppSKey',
+            ]
+
+        query_condition = {
+            'DevAddr': DevAddr,
+        }
+        table_name = 'DeviceInfo'
+        cli = db.Mycli(config=self.database_conf)
+        row = cli.query_info(
+            query_condition=query_condition,
+            table_name=table_name, attributes=key_list
+        )
+        return row[0]
+
     def form_join(self, key, **kwargs):
         AppEUI = DeviceOp.str_rev(kwargs.get('AppEUI'))
         DevEUI = DeviceOp.str_rev(kwargs.get('DevEUI'))
@@ -353,9 +403,12 @@ class DeviceOp(BytesOperation):
             MIC
         ])
 
+    def parse(self):
+        pass
+
 
 if __name__ == '__main__':
-    DevAddr = 'ABCDEF12'
+    DevAddr = '55667788'
     direction = '00'
     FCnt = '000000FF'
     FCnt_low = FCnt[-4:]
@@ -373,9 +426,6 @@ if __name__ == '__main__':
         'ClassB': F_ClassB,
     }
     FOpts = '020203'
-    key = bytearray.fromhex('FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF')
-    NwkSKey = key
-    AppSKey = key
     device = DeviceOp()
     FHDR = device.form_FHDR(
             DevAddr=DevAddr,
@@ -394,6 +444,15 @@ if __name__ == '__main__':
         'FRMPayload': payload,
     }
     pprint(kwargs)
-    mic = device.cal_mic(key=key, **kwargs)
-    enc_msg = device.encrypt(key=key, **kwargs)
-    macpayload = device.form_payload(NwkSKey=NwkSKey, AppSKey=AppSKey, **kwargs)
+    keys = device.get_keys(DevAddr)
+    print(keys)
+    NwkSKey, AppSKey = [bytearray.fromhex(x) for x in keys]
+    mic = device.cal_mic(key=NwkSKey, **kwargs)
+    enc_msg = device.encrypt(key=AppSKey, **kwargs)
+    macpayload = device.form_payload(
+            NwkSKey=NwkSKey,
+            AppSKey=AppSKey,
+            **kwargs
+        )
+    print(macpayload)
+    gateway = GatewayOp('DDDDDDDDDDDDDDDD')

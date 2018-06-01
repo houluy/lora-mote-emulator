@@ -9,5 +9,7 @@ class UDPClient:
         self.target = target
 
     def send(self, data):
-        # data_bytes = bytearray.fromhex(data)
         self.s.sendto(data, self.target)
+
+    def recv(self, size=4096):
+        return self.s.recvfrom(size)
