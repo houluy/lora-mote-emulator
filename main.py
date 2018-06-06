@@ -14,30 +14,43 @@ import threading
 import time
 
 parser = argparse.ArgumentParser(
-    description='LoRa server test',
-    prefix_chars='-+'
+    description='LoRa server test'
 )
+# parser.add_argument(
+#     'target',
+#     help='test simple/full server',
+#     choices=['simple', 'full'],
+#     default='simple'
+# )
+# parser.add_argument(
+#     '-t',
+#     '--data-type',
+#     help='Specify which kind of packages',
+#     choices=['pull', 'push', 'join', 'stat', 'rxpk'],
+#     dest='data_type'
+# )
+# parser.add_argument(
+#     '-i',
+#     '--index',
+#     type=int,
+#     help='Specify which test case',
+# )
+
 parser.add_argument(
-    'target',
-    help='test simple/full server',
-    choices=['simple', 'full'],
-    default='simple'
-)
-parser.add_argument(
-    '-t',
-    '--data-type',
-    help='Specify which kind of packages',
-    choices=['pull', 'push', 'join', 'stat', 'rxpk'],
-    dest='data_type'
-)
-parser.add_argument(
-    '-i',
-    '--index',
-    type=int,
-    help='Specify which test case',
+    'type',
+    help='Data type of uplink',
+    choices=['join', 'app']
 )
 
-# args = parser.parse_args()
+parser.add_argument(
+    '-i',
+    help='Inteval of uplink',
+    type=int,
+    default=5,
+    dest='interval'
+)
+
+args = parser.parse_args()
 
 # nprint = partial(cprint, color='c', bcolor='k')
 # iprint = partial(cprint, color='g', bcolor='k')
@@ -55,14 +68,18 @@ database_conf = config.get('database').get('mysql')
 gateway_id = 'DDDDDDDDDDDDDDDD'
 device_handler = mac.DeviceOp(database_conf)
 gateway_handler = mac.GatewayOp(gateway_id)
+AppEUI = '9816be466f467a17'
+DevEUI = 'a912cfdda912cfdd'
+DevNonce = 'c5ad'
 # keys = basic_config.get('keys')
 DevAddr = '55667788'
 direction = '00'
 FCnt = '000000FF'
 FCnt_low = FCnt[-4:]
-payload = 'hello'
-FPort = '02'
+payload = b'\x02\x02\x02\x02'
+FPort = '00'
 MHDR = '80'
+joinMHDR = '00'
 F_ADR = 0
 F_ADRACKReq = 0
 F_ACK = 0
@@ -73,7 +90,7 @@ FCtrl = {
     'ACK': F_ACK,
     'ClassB': F_ClassB,
 }
-FOpts = '0302'
+FOpts = ''
 FHDR = device_handler.form_FHDR(
         DevAddr=DevAddr,
         FCtrl=FCtrl,
@@ -90,9 +107,15 @@ kwargs = {
     'FCtrl': FCtrl,
     'FRMPayload': payload,
 }
-pprint(kwargs)
+join_kwargs = {
+    'MHDR': joinMHDR,
+    'AppEUI': AppEUI,
+    'DevEUI': DevEUI,
+    'DevNonce': DevNonce,
+}
+
 keys = device_handler.get_keys(DevAddr)
-NwkSKey, AppSKey = [bytearray.fromhex(x) for x in keys]
+NwkSKey, AppSKey, AppKey = [bytearray.fromhex(x) for x in keys]
 # mic = device_handler.cal_mic(key=NwkSKey, **kwargs)
 # enc_msg = device_handler.encrypt(key=AppSKey, **kwargs)
 macpayload = device_handler.form_payload(
@@ -100,20 +123,30 @@ macpayload = device_handler.form_payload(
     AppSKey=AppSKey,
     **kwargs
 )
-print(macpayload)
+joinpayload = device_handler.form_join(
+    key=AppKey,
+    **join_kwargs
+)
 
 udp_address = ('10.3.242.235', 12367)
 udp_data = gateway_handler.push_data(data=macpayload)
+join_data = gateway_handler.push_data(data=joinpayload)
 pull_data = gateway_handler.pull_data()
 
 udp_client = network.UDPClient(target, address=udp_address)
 udp_client.send(pull_data)
 
 
-def uplink(udp_client, udp_data):
+def join(udp_client, join_data):
+    while True:
+        udp_client.send(join_data)
+        time.sleep(args.interval)
+
+
+def app(udp_client, udp_data):
     while True:
         udp_client.send(udp_data)
-        time.sleep(5)
+        time.sleep(args.interval)
 
 
 def downlink(udp_client):
@@ -125,7 +158,14 @@ def downlink(udp_client):
             gateway_handler.get_txpk_data(txpk)
 
 
-uplink_thread = threading.Thread(target=uplink, args=(udp_client, udp_data))
+if args.type == 'app':
+    uplink = app
+    data = udp_data
+else:
+    uplink = join
+    data = join_data
+
+uplink_thread = threading.Thread(target=uplink, args=(udp_client, data))
 downlink_thread = threading.Thread(target=downlink, args=(udp_client,))
 
 uplink_thread.start()

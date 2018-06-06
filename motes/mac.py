@@ -328,8 +328,7 @@ class DeviceOp(BytesOperation):
         return cobj.hexdigest()[:8]
 
     @staticmethod
-    def encrypt(key, **kwargs):
-        payload = kwargs.get('FRMPayload').encode()
+    def encrypt(key, payload, **kwargs):
         pld_len = len(payload) // 2
         payload = Padding.pad(payload, 16)
         k = math.ceil(pld_len / 16)
@@ -348,6 +347,7 @@ class DeviceOp(BytesOperation):
             key_list = [
                 'NwkSKey',
                 'AppSKey',
+                'AppKey',
             ]
 
         query_condition = {
@@ -382,8 +382,20 @@ class DeviceOp(BytesOperation):
         ])
 
     def form_payload(self, NwkSKey, AppSKey, **kwargs):
-        if kwargs.get('FRMPayload'):
-            FRMPayload = DeviceOp.encrypt(key=AppSKey, **kwargs).hex()
+        FRMPayload = kwargs.pop('FRMPayload')
+        FPort = kwargs.get('FPort')
+        if FPort == 0:
+            enc_key = NwkSKey
+        else:
+            enc_key = AppSKey
+        if FRMPayload:
+            if isinstance(FRMPayload, str):
+                FRMPayload = FRMPayload.encode()
+            FRMPayload = DeviceOp.encrypt(
+                key=enc_key,
+                payload=FRMPayload,
+                **kwargs
+            ).hex()
         else:
             FRMPayload = ''
         if not kwargs.get('FHDR'):
@@ -448,7 +460,7 @@ if __name__ == '__main__':
     print(keys)
     NwkSKey, AppSKey = [bytearray.fromhex(x) for x in keys]
     mic = device.cal_mic(key=NwkSKey, **kwargs)
-    enc_msg = device.encrypt(key=AppSKey, **kwargs)
+    enc_msg = device.encrypt(key=AppSKey, payload=payload, **kwargs)
     macpayload = device.form_payload(
             NwkSKey=NwkSKey,
             AppSKey=AppSKey,
