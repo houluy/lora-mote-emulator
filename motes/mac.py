@@ -198,23 +198,42 @@ class GatewayOp(BytesOperation):
         rxpk = self._add_data_to_rxpk(rxpk=self._default_rxpk, data=raw_data)
         return rxpk
 
-    def get_txpk_data(self, txpk):
+    def get_txpk_data(self, key, txpk):
         macpayload = base64.b64decode(txpk.get('data'))
-        print(macpayload)
+        print('macpayload: {}'.format(macpayload.hex()))
         MHDR = macpayload[0:1]
-        DevAddr = macpayload[1:5]
-        FCtrl = macpayload[5:6]
-        FOptsLen = (ord(FCtrl) & 0b1111)
-        FCnt = macpayload[6:8]
-        FOpts = macpayload[8:8+FOptsLen]
-        log_json = {
-            'MHDR': MHDR.hex(),
-            'DevAddr': DevAddr.hex(),
-            'FCtrl': FCtrl.hex(),
-            'FOptsLen': FOptsLen,
-            'FCnt': FCnt.hex(),
-            'FOpts': FOpts.hex(),
-        }
+        macpayload = macpayload[1:]
+        if (int.from_bytes(MHDR, 'big') >> 5) == 1:
+            macpayload = DeviceOp.join_acpt_decrypt(key, macpayload)
+            AppNonce = macpayload[0:3]
+            NetID = macpayload[3:6]
+            DevAddr = macpayload[6:10]
+            DLSettings = macpayload[10:11]
+            RxDelay = macpayload[11:12]
+            CFList = macpayload[12:]
+            log_json = {
+                'MHDR': GatewayOp.str_rev(MHDR.hex()),
+                'AppNonce': GatewayOp.str_rev(AppNonce.hex()),
+                'NetID': GatewayOp.str_rev(NetID.hex()),
+                'DevAddr': GatewayOp.str_rev(DevAddr.hex()),
+                'DLSettings': GatewayOp.str_rev(DLSettings.hex()),
+                'RxDelay': GatewayOp.str_rev(RxDelay.hex()),
+                'CFList': GatewayOp.str_rev(CFList.hex()),
+            }
+        else:
+            DevAddr = macpayload[1:5]
+            FCtrl = macpayload[5:6]
+            FOptsLen = (ord(FCtrl) & 0b1111)
+            FCnt = macpayload[6:8]
+            FOpts = macpayload[8:8+FOptsLen]
+            log_json = {
+                'MHDR': MHDR.hex(),
+                'DevAddr': DevAddr.hex(),
+                'FCtrl': FCtrl.hex(),
+                'FOptsLen': FOptsLen,
+                'FCnt': FCnt.hex(),
+                'FOpts': FOpts.hex(),
+            }
         pprint(log_json)
 
     def parse_dlk(self, downlink):
@@ -326,6 +345,11 @@ class DeviceOp(BytesOperation):
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(obj_msg)
         return cobj.hexdigest()[:8]
+
+    @staticmethod
+    def join_acpt_decrypt(key, join_acpt):
+        cryptor = AES.new(key, AES.MODE_ECB)
+        return cryptor.encrypt(join_acpt)
 
     @staticmethod
     def encrypt(key, payload, **kwargs):

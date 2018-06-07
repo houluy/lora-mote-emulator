@@ -13,6 +13,9 @@ import threading
 
 import time
 
+import json
+import os
+
 parser = argparse.ArgumentParser(
     description='LoRa server test'
 )
@@ -50,6 +53,14 @@ parser.add_argument(
     dest='interval'
 )
 
+parser.add_argument(
+    '-s',
+    help='Sign for single pack',
+    default=False,
+    dest='single',
+    action='store_true'
+)
+
 args = parser.parse_args()
 
 # nprint = partial(cprint, color='c', bcolor='k')
@@ -58,9 +69,13 @@ args = parser.parse_args()
 # iprint = print
 
 config_file = 'config.yml'
+device_info_file = 'device.inf'
 
 with open(config_file) as f:
     config = yaml.load(f)
+
+with open(device_info_file) as f:
+    device_info = json.load(f)
 # basic_config = config.get('target').get(args.target)
 # target = (config.get('host'), basic_config.get('port'))
 target = ('10.3.242.235', 12234)
@@ -69,8 +84,7 @@ gateway_id = 'DDDDDDDDDDDDDDDD'
 device_handler = mac.DeviceOp(database_conf)
 gateway_handler = mac.GatewayOp(gateway_id)
 AppEUI = '9816be466f467a17'
-DevEUI = 'a912cfdda912cfdd'
-DevNonce = 'c5ad'
+DevEUI = 'e97c762de97c762d'
 # keys = basic_config.get('keys')
 DevAddr = '55667788'
 direction = '00'
@@ -107,65 +121,69 @@ kwargs = {
     'FCtrl': FCtrl,
     'FRMPayload': payload,
 }
-join_kwargs = {
-    'MHDR': joinMHDR,
-    'AppEUI': AppEUI,
-    'DevEUI': DevEUI,
-    'DevNonce': DevNonce,
-}
 
-keys = device_handler.get_keys(DevAddr)
-NwkSKey, AppSKey, AppKey = [bytearray.fromhex(x) for x in keys]
+if args.type == 'app':
+    keys = device_handler.get_keys(DevAddr)
+    NwkSKey, AppSKey, AppKey = [bytearray.fromhex(x) for x in keys]
+    dlk_key = AppSKey
 # mic = device_handler.cal_mic(key=NwkSKey, **kwargs)
 # enc_msg = device_handler.encrypt(key=AppSKey, **kwargs)
-macpayload = device_handler.form_payload(
-    NwkSKey=NwkSKey,
-    AppSKey=AppSKey,
-    **kwargs
-)
-joinpayload = device_handler.form_join(
-    key=AppKey,
-    **join_kwargs
-)
+else:
+    dlk_key = AppKey = bytes.fromhex('1d01d94541d57b101d01d94541d57b10')
+    # joinpayload = device_handler.form_join(
+    #     key=AppKey,
+    #     **join_kwargs
+    # )
+    # print('joinp: {}'.format(joinpayload))
+    # data = gateway_handler.push_data(data=joinpayload)
 
 udp_address = ('10.3.242.235', 12367)
-udp_data = gateway_handler.push_data(data=macpayload)
-join_data = gateway_handler.push_data(data=joinpayload)
 pull_data = gateway_handler.pull_data()
 
 udp_client = network.UDPClient(target, address=udp_address)
 udp_client.send(pull_data)
 
 
-def join(udp_client, join_data):
+def uplink(udp_client, typ='app'):
     while True:
-        udp_client.send(join_data)
-        time.sleep(args.interval)
+        if typ == 'join':
+            DevNonce = os.urandom(2).hex()
+            join_kwargs = {
+                'MHDR': joinMHDR,
+                'AppEUI': AppEUI,
+                'DevEUI': DevEUI,
+                'DevNonce': DevNonce,
+            }
+            joinpayload = device_handler.form_join(
+                    key=AppKey,
+                    **join_kwargs
+                )
+            print('joinpayload: {}'.format(joinpayload))
+            data = gateway_handler.push_data(data=joinpayload)
+        else:
+            macpayload = device_handler.form_payload(
+                NwkSKey=NwkSKey,
+                AppSKey=AppSKey,
+                **kwargs
+            )
+            print('apppayload: {}'.format(joinpayload))
+            data = gateway_handler.push_data(data=macpayload)
 
-
-def app(udp_client, udp_data):
-    while True:
-        udp_client.send(udp_data)
+        udp_client.send(data)
         time.sleep(args.interval)
+        if args.single:
+            return
 
 
 def downlink(udp_client):
     while True:
         res = udp_client.recv()
-        print(res)
         txpk = gateway_handler.parse_dlk(res[0])
         if txpk:
-            gateway_handler.get_txpk_data(txpk)
+            gateway_handler.get_txpk_data(key=dlk_key, txpk=txpk)
 
 
-if args.type == 'app':
-    uplink = app
-    data = udp_data
-else:
-    uplink = join
-    data = join_data
-
-uplink_thread = threading.Thread(target=uplink, args=(udp_client, data))
+uplink_thread = threading.Thread(target=uplink, args=(udp_client, args.type))
 downlink_thread = threading.Thread(target=downlink, args=(udp_client,))
 
 uplink_thread.start()
