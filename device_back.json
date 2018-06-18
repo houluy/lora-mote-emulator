@@ -1,0 +1,12 @@
+{
+  "Device": {
+    "AppEUI": "AAAAAAAAAAAAAAAA",
+    "DevEUI": "DDDDDDDDDDDDDDDD"
+  },
+  "keys": {
+    "AppKey": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+  },
+  "Gateway": {
+    "GatewayEUI": "bbbbbbbbbbbbbbbb"
+  }
+}

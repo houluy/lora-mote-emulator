@@ -198,28 +198,45 @@ class GatewayOp(BytesOperation):
         rxpk = self._add_data_to_rxpk(rxpk=self._default_rxpk, data=raw_data)
         return rxpk
 
-    def get_txpk_data(self, key, txpk):
+    def get_txpk_data(self, keys, txpk):
         macpayload = base64.b64decode(txpk.get('data'))
         print('macpayload: {}'.format(macpayload.hex()))
         MHDR = macpayload[0:1]
         macpayload = macpayload[1:]
         if (int.from_bytes(MHDR, 'big') >> 5) == 1:
-            macpayload = DeviceOp.join_acpt_decrypt(key, macpayload)
+            AppKey = keys.get('AppKey')
+            macpayload = DeviceOp.join_acpt_decrypt(
+                key=AppKey,
+                join_acpt=macpayload
+            )
             AppNonce = macpayload[0:3]
             NetID = macpayload[3:6]
             DevAddr = macpayload[6:10]
             DLSettings = macpayload[10:11]
             RxDelay = macpayload[11:12]
-            CFList = macpayload[12:]
-            log_json = {
-                'MHDR': GatewayOp.str_rev(MHDR.hex()),
-                'AppNonce': GatewayOp.str_rev(AppNonce.hex()),
-                'NetID': GatewayOp.str_rev(NetID.hex()),
-                'DevAddr': GatewayOp.str_rev(DevAddr.hex()),
-                'DLSettings': GatewayOp.str_rev(DLSettings.hex()),
-                'RxDelay': GatewayOp.str_rev(RxDelay.hex()),
-                'CFList': GatewayOp.str_rev(CFList.hex()),
+            CFList = macpayload[12:-4]
+            MIC = macpayload[-4:]
+            MIC_obj = {
+                'MHDR': MHDR.hex(),
+                'AppNonce': AppNonce.hex(),
+                'NetID': NetID.hex(),
+                'DevAddr': DevAddr.hex(),
+                'DLSettings': DLSettings.hex(),
+                'RxDelay': RxDelay.hex(),
+                'CFList': '',
             }
+            if CFList:
+                MIC_obj['CFList'] = CFList.hex()
+            mic = DeviceOp.cal_mic(
+                key=AppKey,
+                typ='acpt',
+                **MIC_obj
+            )
+            if (MIC.hex() == mic):
+                print('MIC matched')
+                return MIC_obj
+            else:
+                raise ValueError('MIC dismatch')
         else:
             DevAddr = macpayload[1:5]
             FCtrl = macpayload[5:6]
@@ -246,8 +263,7 @@ class GatewayOp(BytesOperation):
 
 
 class DeviceOp(BytesOperation):
-    def __init__(self, database_conf):
-        self.database_conf = database_conf
+    def __init__(self):
         self._attributes = [
             'DevAddr',
             'MHDR',
@@ -301,8 +317,8 @@ class DeviceOp(BytesOperation):
     def form_FHDR(DevAddr, FCtrl, FCnt, FOpts=''):
         DevAddr = DeviceOp.str_rev(DevAddr)
         if len(FCnt) == 8:
-            FCnt = FCnt[4:]
-        FCnt = DeviceOp.str_rev(FCnt)
+            FCnt = FCnt[:4]
+        # FCnt = DeviceOp.str_rev(FCnt)
         FCtrl['FOptsLen'] = len(FOpts) // 2
         FCtrl = DeviceOp.form_FCtrl(**FCtrl)
         return '{}{}{}{}'.format(DevAddr, FCtrl, FCnt, FOpts)
@@ -339,8 +355,12 @@ class DeviceOp(BytesOperation):
             B0 = DeviceOp._B0(msg_length=msg_length, **kwargs)
             obj_msg = B0 + msg
             obj_msg = bytearray.fromhex(obj_msg)
-        else:
+        elif typ == 'join':
             msg = '{MHDR}{AppEUI}{DevEUI}{DevNonce}'.format(**kwargs)
+            obj_msg = bytearray.fromhex(msg)
+        else:
+            msg = '{MHDR}{AppNonce}{NetID}{DevAddr}\
+                {DLSettings}{RxDelay}{CFList}'.format(**kwargs)
             obj_msg = bytearray.fromhex(msg)
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(obj_msg)
@@ -366,7 +386,24 @@ class DeviceOp(BytesOperation):
             S += Si
         return b''.join(DeviceOp.bytes_xor(S, payload))[:pld_len * 2 + 1]
 
-    def get_keys(self, DevAddr, key_list=None):
+    @staticmethod
+    def gen_keys(AppKey, NetID, AppNonce, DevNonce):
+        cryptor = AES.new(AppKey, AES.MODE_ECB)
+        pad = '00000000000000'
+        NwkSKeybytes = '01' + AppNonce + NetID + DevNonce + pad
+        AppSKeybytes = '02' + AppNonce + NetID + DevNonce + pad
+        NwkSKeybytes = bytes.fromhex(NwkSKeybytes)
+        AppSKeybytes = bytes.fromhex(AppSKeybytes)
+        # NwkSKeybytes = Padding.pad(NwkSKeybytes, 16)
+        # AppSKeybytes = Padding.pad(AppSKeybytes, 16)
+        NwkSKey = cryptor.encrypt(NwkSKeybytes)
+        AppSKey = cryptor.encrypt(AppSKeybytes)
+        return {
+            'NwkSKey': NwkSKey.hex(),
+            'AppSKey': AppSKey.hex(),
+        }
+
+    def get_keys(self, DevAddr, database_conf, key_list=None):
         if not key_list:
             key_list = [
                 'NwkSKey',
@@ -378,7 +415,7 @@ class DeviceOp(BytesOperation):
             'DevAddr': DevAddr,
         }
         table_name = 'DeviceInfo'
-        cli = db.Mycli(config=self.database_conf)
+        cli = db.Mycli(config=database_conf)
         row = cli.query_info(
             query_condition=query_condition,
             table_name=table_name, attributes=key_list
