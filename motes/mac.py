@@ -2,13 +2,14 @@ import math
 import time
 import base64
 import json
-from pprint import pprint
+from colorline import cprint
+from functools import partial
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
 from Crypto.Util import Padding
 
-from motes import db_connector as db
-
+nprint = partial(cprint, color='g', bcolor='k')
+eprint = partial(cprint, color='c', bcolor='k')
 # import pdb
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
@@ -200,7 +201,8 @@ class GatewayOp(BytesOperation):
 
     def get_txpk_data(self, keys, txpk):
         macpayload = base64.b64decode(txpk.get('data'))
-        print('macpayload: {}'.format(macpayload.hex()))
+        nprint('Dlk MAC Payload:')
+        print(macpayload.hex())
         MHDR = macpayload[0:1]
         macpayload = macpayload[1:]
         if (int.from_bytes(MHDR, 'big') >> 5) == 1:
@@ -236,22 +238,58 @@ class GatewayOp(BytesOperation):
                 print('MIC matched')
                 return MIC_obj
             else:
-                raise ValueError('MIC dismatch')
+                raise ValueError('MIC mismatch')
         else:
-            DevAddr = macpayload[1:5]
-            FCtrl = macpayload[5:6]
+            NwkSKey = keys.get('NwkSKey')
+            AppSKey = keys.get('AppSKey')
+            DevAddr = macpayload[3::-1]
+            FCtrl = macpayload[4:5]
             FOptsLen = (ord(FCtrl) & 0b1111)
-            FCnt = macpayload[6:8]
-            FOpts = macpayload[8:8+FOptsLen]
-            log_json = {
+            FCnt = macpayload[5:7]
+            FCnt += b'\x00\x00'
+            FCnt = bytes(reversed(FCnt))
+            FOptsOffset = 7 + FOptsLen
+            FOpts = macpayload[7:FOptsOffset]
+            FHDR = macpayload[:7+FOptsLen]
+            FPort = macpayload[FOptsOffset:-4-1]
+            FRMPayload = macpayload[FOptsOffset+1:-4]
+            MIC = macpayload[-4:]
+            mic_fields = {
                 'MHDR': MHDR.hex(),
+                'FHDR': FHDR.hex(),
+                'FPort': FPort.hex(),
+                'FRMPayload': FRMPayload.hex(),
                 'DevAddr': DevAddr.hex(),
-                'FCtrl': FCtrl.hex(),
-                'FOptsLen': FOptsLen,
                 'FCnt': FCnt.hex(),
-                'FOpts': FOpts.hex(),
+                'direction': '01',
             }
-        pprint(log_json)
+            caled_mic = DeviceOp.cal_mic(key=NwkSKey, **mic_fields)
+            if caled_mic == MIC.hex():
+                nprint('Dlk normal pcks, MIC matched')
+                # Decrypt
+                decrypt_fields = {
+                    'DevAddr': DevAddr.hex(),
+                    'FCnt': FCnt.hex(),
+                }
+                FRMPayload = DeviceOp.encrypt(
+                    key=AppSKey,
+                    payload=FRMPayload,
+                    **decrypt_fields
+                )
+                log_json = {
+                    'MHDR': MHDR.hex(),
+                    'DevAddr': DevAddr.hex(),
+                    'FCtrl': FCtrl.hex(),
+                    'FOptsLen': FOptsLen,
+                    'FCnt': FCnt.hex(),
+                    'FOpts': FOpts.hex(),
+                    'FPort': FPort.hex(),
+                    'FRMPayload': FRMPayload.hex(),
+                    'MIC': MIC.hex(),
+                }
+                return log_json
+            else:
+                eprint('Dlk MIC MISMATCH!!!')
 
     def parse_dlk(self, downlink):
         if downlink[3] in (1, 4):
@@ -403,25 +441,6 @@ class DeviceOp(BytesOperation):
             'AppSKey': AppSKey.hex(),
         }
 
-    def get_keys(self, DevAddr, database_conf, key_list=None):
-        if not key_list:
-            key_list = [
-                'NwkSKey',
-                'AppSKey',
-                'AppKey',
-            ]
-
-        query_condition = {
-            'DevAddr': DevAddr,
-        }
-        table_name = 'DeviceInfo'
-        cli = db.Mycli(config=database_conf)
-        row = cli.query_info(
-            query_condition=query_condition,
-            table_name=table_name, attributes=key_list
-        )
-        return row[0]
-
     def form_join(self, key, **kwargs):
         AppEUI = DeviceOp.str_rev(kwargs.get('AppEUI'))
         DevEUI = DeviceOp.str_rev(kwargs.get('DevEUI'))
@@ -478,54 +497,3 @@ class DeviceOp(BytesOperation):
 
     def parse(self):
         pass
-
-
-if __name__ == '__main__':
-    DevAddr = '55667788'
-    direction = '00'
-    FCnt = '000000FF'
-    FCnt_low = FCnt[-4:]
-    payload = b'hello'.hex()
-    FPort = '02'
-    MHDR = '80'
-    F_ADR = 0
-    F_ADRACKReq = 0
-    F_ACK = 0
-    F_ClassB = 0
-    FCtrl = {
-        'ADR': F_ADR,
-        'ADRACKReq': F_ADRACKReq,
-        'ACK': F_ACK,
-        'ClassB': F_ClassB,
-    }
-    FOpts = '020203'
-    device = DeviceOp()
-    FHDR = device.form_FHDR(
-            DevAddr=DevAddr,
-            FCtrl=FCtrl,
-            FCnt=FCnt_low,
-            FOpts=FOpts
-            )
-    kwargs = {
-        'DevAddr': DevAddr,
-        'FCnt': FCnt,
-        'FHDR': FHDR,
-        'MHDR': MHDR,
-        'FPort': FPort,
-        'direction': direction,
-        'FCtrl': FCtrl,
-        'FRMPayload': payload,
-    }
-    pprint(kwargs)
-    keys = device.get_keys(DevAddr)
-    print(keys)
-    NwkSKey, AppSKey = [bytearray.fromhex(x) for x in keys]
-    mic = device.cal_mic(key=NwkSKey, **kwargs)
-    enc_msg = device.encrypt(key=AppSKey, payload=payload, **kwargs)
-    macpayload = device.form_payload(
-            NwkSKey=NwkSKey,
-            AppSKey=AppSKey,
-            **kwargs
-        )
-    print(macpayload)
-    gateway = GatewayOp('DDDDDDDDDDDDDDDD')

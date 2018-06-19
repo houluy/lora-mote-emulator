@@ -1,22 +1,22 @@
 {
   "Device": {
-    "AppNonce": "6e319f",
-    "DevNonce": "ea42",
-    "DevAddr": "00f4fb8f",
+    "AppNonce": "a0a606",
+    "DevNonce": "559b",
+    "DevAddr": "006aaeed",
     "NetID": "000000",
     "FCnt": 0,
     "FPort": 1,
     "ADR": 1,
     "FOpts": "",
     "payload": "hello",
-    "AppEUI": "AAAAAAAAAAAAAAAA",
-    "DevEUI": "DDDDDDDDDDDDDDDD",
+    "AppEUI": "9816be466f467a17",
+    "DevEUI": "AAAAAAAAAAAAAAAA",
     "MHDR": "00"
   },
   "keys": {
     "AppKey": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
-    "NwkSKey": "3b01ffde9c26ddad6a79c886a520dd24",
-    "AppSKey": "df7e541c5ed2fc5ed5a57ca4bd68d1d1"
+    "NwkSKey": "8c34546b28aded248e24b4f309894fd5",
+    "AppSKey": "998ec71b6deea05a1cfc32322be393fd"
   },
   "Gateway": {
     "GatewayEUI": "bbbbbbbbbbbbbbbb"

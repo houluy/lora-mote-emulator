@@ -1,12 +1,11 @@
 import argparse
-# from functools import partial
 from pprint import pprint
-
-# from colorline import cprint
 
 import yaml
 import shutil
 from motes import network, mac
+
+nprint = mac.nprint
 
 # import pdb
 
@@ -74,11 +73,6 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# nprint = partial(cprint, color='c', bcolor='k')
-# iprint = partial(cprint, color='g', bcolor='k')
-# nprint = print
-# iprint = print
-
 config_file = 'config.yml'
 device_info_file = 'device.json'
 original_file = 'device_back.json'
@@ -110,65 +104,66 @@ udp_client = network.UDPClient(target, address=local)
 udp_client.send(pull_data)
 device = device_info.get('Device')
 def uplink(udp_client, typ='app'):
-    if typ == 'join':
-        join_params = device
-        join_params['DevNonce'] = os.urandom(2).hex()
-        join_params['MHDR'] = '00'
-        AppKey = keys.get('AppKey')
-        join_mac = device_handler.form_join(
-            key=AppKey,
-            **join_params
-        )
-        print('joinpayload: {}'.format(join_mac))
-        data = gateway_handler.push_data(data=join_mac)
-    elif typ == 'app':
-        DevAddr = device.get('DevAddr')
-        FCnt = struct.pack('<i', device.get('FCnt')).hex()
-        MHDR = '80'
-        device['MHDR'] = '80'
-        direction = '00'
-        FPort = struct.pack('<b', device.get('FPort')).hex()
-        payload = device.get('payload')
-        F_ADR = device.get('ADR')
-        F_ADRACKReq = 0
-        F_ACK = 0
-        F_ClassB = 0
-        FCtrl = {
-            'ADR': F_ADR,
-            'ADRACKReq': F_ADRACKReq,
-            'ACK': F_ACK,
-            'ClassB': F_ClassB,
-        }
-        FOpts = device.get('FOpts')
-        FHDR = device_handler.form_FHDR(
-                DevAddr=DevAddr,
-                FCtrl=FCtrl,
-                FCnt=FCnt,
-                FOpts=FOpts
-                )
-        kwargs = {
-            'DevAddr': DevAddr,
-            'FCnt': FCnt,
-            'FHDR': FHDR,
-            'MHDR': MHDR,
-            'FPort': FPort,
-            'direction': direction,
-            'FCtrl': FCtrl,
-            'FRMPayload': payload,
-        }
-        print('Uplink data:')
-        pprint(kwargs)
-        macpayload = device_handler.form_payload(
-            NwkSKey=keys.get('NwkSKey'),
-            AppSKey=keys.get('AppSKey'),
-            **kwargs
-        )
-        print('Raw MAC Payload:')
-        print(macpayload)
-        data = gateway_handler.push_data(data=macpayload)
-    else:
-        pass
     while True:
+        if typ == 'join':
+            join_params = device
+            join_params['DevNonce'] = os.urandom(2).hex()
+            join_params['MHDR'] = '00'
+            AppKey = keys.get('AppKey')
+            join_mac = device_handler.form_join(
+                key=AppKey,
+                **join_params
+            )
+            nprint('Join MAC Payload:')
+            pprint(join_mac)
+            data = gateway_handler.push_data(data=join_mac)
+        elif typ == 'app':
+            DevAddr = device.get('DevAddr')
+            FCnt = struct.pack('<i', device.get('FCnt')).hex()
+            MHDR = '80'
+            device['MHDR'] = MHDR
+            direction = '00'
+            FPort = struct.pack('<b', device.get('FPort')).hex()
+            payload = device.get('payload')
+            F_ADR = device.get('ADR')
+            F_ADRACKReq = 0
+            F_ACK = 0
+            F_ClassB = 0
+            FCtrl = {
+                'ADR': F_ADR,
+                'ADRACKReq': F_ADRACKReq,
+                'ACK': F_ACK,
+                'ClassB': F_ClassB,
+            }
+            FOpts = device.get('FOpts')
+            FHDR = device_handler.form_FHDR(
+                    DevAddr=DevAddr,
+                    FCtrl=FCtrl,
+                    FCnt=FCnt,
+                    FOpts=FOpts
+                    )
+            kwargs = {
+                'DevAddr': DevAddr,
+                'FCnt': FCnt,
+                'FHDR': FHDR,
+                'MHDR': MHDR,
+                'FPort': FPort,
+                'direction': direction,
+                'FCtrl': FCtrl,
+                'FRMPayload': payload,
+            }
+            nprint('Uplink data:')
+            pprint(kwargs)
+            macpayload = device_handler.form_payload(
+                NwkSKey=keys.get('NwkSKey'),
+                AppSKey=keys.get('AppSKey'),
+                **kwargs
+            )
+            nprint('Raw MAC Payload:')
+            print(macpayload)
+            data = gateway_handler.push_data(data=macpayload)
+        else:
+            pass
         udp_client.send(data)
         time.sleep(args.interval)
         if args.single:
@@ -211,11 +206,14 @@ def downlink(udp_client):
                     **device_info['keys'],
                     **genedkeys,
                 }
+                nprint('Device info details:')
                 pprint(device_info)
                 with open(device_info_file, 'w') as f:
                     json.dump(device_info, f, indent=2)
             else:
-                print(out)
+                nprint('Dlk pck details: ')
+                pprint(out)
+                nprint('-----------------------------------')
 
 
 uplink_thread = threading.Thread(target=uplink, args=(udp_client, args.type))

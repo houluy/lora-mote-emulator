@@ -1,7 +1,7 @@
 {
   "Device": {
-    "AppEUI": "AAAAAAAAAAAAAAAA",
-    "DevEUI": "DDDDDDDDDDDDDDDD"
+    "AppEUI": "9816be466f467a17",
+    "DevEUI": "AAAAAAAAAAAAAAAA"
   },
   "keys": {
     "AppKey": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"

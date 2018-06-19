@@ -1,23 +1,21 @@
 [[source]]
 
+name = "pypi"
 verify_ssl = true
 url = "https://pypi.python.org/simple"
-name = "pypi"
 
 
 [packages]
 
-pymysql = "*"
 pyyaml = "*"
-"bee8ac7" = {editable = true, path = "../pycryptodome"}
-"b645465" = {path = "./../pycryptodome"}
 colorline = "*"
-
-
-[dev-packages]
-
+pycryptodome = "*"
 
 
 [requires]
 
 python_version = "3.6"
+
+
+[dev-packages]
+

@@ -1,5 +1,5 @@
 dest:
-    hostname: www.xisiot.com
+    hostname: 10.3.242.235
     port: 12234
 src:
     hostname: 10.3.242.235
