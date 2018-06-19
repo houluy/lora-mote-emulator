@@ -33,4 +33,15 @@ Installtion
 
   pipenv --python 3 install
   
-Here, if there is not Python 3.6 in your system, it is perfect to install one from `source <https://www.python.org/downloads/release/python-362/>`_
+Here, if there is not Python 3.6 in your system, a warning will occur, and no package will be installed. It is perfect to install Python 3.6 from `source <https://www.python.org/downloads/release/python-362/>`_. Otherwise, remove the ``Pipfile.lock`` and redo the above command.
+
+- Copy a local config file and modify the src and dest address.
+- Modify device basic infomation in ``device_back.json``.
+- Run the emulator to see the help::
+
+    pipenv run python main.py -h
+
+or by::
+
+    pipenv shell
+    python main.py -h
