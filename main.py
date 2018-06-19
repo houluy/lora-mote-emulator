@@ -87,8 +87,8 @@ with open(device_info_file) as f:
     device_info = json.load(f)
 # basic_config = config.get('target').get(args.target)
 # target = (config.get('host'), basic_config.get('port'))
-target = tuple(config.get('dest').values())
-local = tuple(config.get('src').values())
+target = (config.get('dest').get('hostname'), config.get('dest').get('port'))
+local = (config.get('src').get('hostname'), config.get('src').get('port'))
 keys = device_info.get('keys')
 keys = {
     key: bytes.fromhex(val) for key, val in keys.items()
