@@ -16,6 +16,7 @@ To emulate end devices (AKA Motes in |LoRaWAN(TM)| protocol)
 System Requirements
 ======================
 
+- Ubuntu
 - Python(3.6, mandatory)
 
 Installtion
@@ -27,11 +28,11 @@ Installtion
 
 - Clone this repo into a directory::
 
-  git clone https://github.com/houluy/lora-motes-emulator.git
+    git clone https://github.com/houluy/lora-motes-emulator.git
 
 - Use ``pipenv`` to create a virtual Python environment and install all the dependencies::
 
-  pipenv --python 3 install
+    pipenv --python 3 install
   
 Here, if there is not Python 3.6 in your system, a warning will occur, and no package will be installed. It is perfect to install Python 3.6 from `source <https://www.python.org/downloads/release/python-362/>`_. Otherwise, remove the ``Pipfile.lock`` and redo the above command.
 
@@ -41,7 +42,7 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
 
     pipenv run python main.py -h
 
-or by::
+  or by::
 
     pipenv shell
     python main.py -h
