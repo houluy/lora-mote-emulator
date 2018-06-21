@@ -9,7 +9,7 @@ from Crypto.Hash import CMAC
 from Crypto.Util import Padding
 
 nprint = partial(cprint, color='g', bcolor='k')
-eprint = partial(cprint, color='c', bcolor='k')
+eprint = partial(cprint, color='c', bcolor='r')
 # import pdb
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
@@ -289,7 +289,7 @@ class GatewayOp(BytesOperation):
                 }
                 return log_json
             else:
-                eprint('Dlk MIC MISMATCH!!!')
+                raise ValueError('Dlk MIC MISMATCH!!!')
 
     def parse_dlk(self, downlink):
         if downlink[3] in (1, 4):

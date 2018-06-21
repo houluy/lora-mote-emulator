@@ -181,7 +181,7 @@ def downlink(udp_client):
                     txpk=txpk
                 )
             except ValueError as e:
-                print(e)
+                mac.eprint(e)
                 continue
             if out.get('AppNonce'):
                 genedkeys = device_handler.gen_keys(
