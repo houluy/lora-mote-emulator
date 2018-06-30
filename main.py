@@ -175,6 +175,7 @@ def downlink(udp_client):
         res = udp_client.recv()
         txpk = gateway_handler.parse_dlk(res[0])
         if txpk:
+            mac.nprint('---Received a Dlk Package---')
             try:
                 out = gateway_handler.get_txpk_data(
                     keys,
@@ -191,6 +192,7 @@ def downlink(udp_client):
                     mac.DeviceOp.str_rev(device.get('DevNonce'))
                 )
                 device_info['Device'] = {
+                    **device,
                     'AppNonce': mac.DeviceOp.str_rev(out.get('AppNonce')),
                     'DevNonce': device.get('DevNonce'),
                     'DevAddr': mac.DeviceOp.str_rev(out.get('DevAddr')),
@@ -200,7 +202,6 @@ def downlink(udp_client):
                     'ADR': 1,
                     'FOpts': '',
                     'payload': 'hello',
-                    **device,
                 }
                 device_info['keys'] = {
                     **device_info['keys'],
@@ -211,9 +212,9 @@ def downlink(udp_client):
                 with open(device_info_file, 'w') as f:
                     json.dump(device_info, f, indent=2)
             else:
-                nprint('Dlk pck details: ')
+                nprint('---Dlk package details: ---')
                 pprint(out)
-                nprint('-----------------------------------')
+                nprint('----------------END----------------')
 
 
 uplink_thread = threading.Thread(target=uplink, args=(udp_client, args.type))

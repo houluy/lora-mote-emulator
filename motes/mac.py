@@ -2,6 +2,7 @@ import math
 import time
 import base64
 import json
+from pprint import pprint
 from colorline import cprint
 from functools import partial
 from Crypto.Cipher import AES
@@ -10,7 +11,7 @@ from Crypto.Util import Padding
 
 nprint = partial(cprint, color='g', bcolor='k')
 eprint = partial(cprint, color='c', bcolor='r')
-# import pdb
+import pdb
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
 
@@ -201,7 +202,7 @@ class GatewayOp(BytesOperation):
 
     def get_txpk_data(self, keys, txpk):
         macpayload = base64.b64decode(txpk.get('data'))
-        nprint('Dlk MAC Payload:')
+        nprint('Dlk MAC Payload in hex:')
         print(macpayload.hex())
         MHDR = macpayload[0:1]
         macpayload = macpayload[1:]
@@ -251,8 +252,9 @@ class GatewayOp(BytesOperation):
             FOptsOffset = 7 + FOptsLen
             FOpts = macpayload[7:FOptsOffset]
             FHDR = macpayload[:7+FOptsLen]
-            FPort = macpayload[FOptsOffset:-4-1]
-            FRMPayload = macpayload[FOptsOffset+1:-4]
+            msg = macpayload[FOptsOffset:]
+            FPort = msg[:1]
+            FRMPayload = msg[1:-4]
             MIC = macpayload[-4:]
             mic_fields = {
                 'MHDR': MHDR.hex(),
@@ -263,16 +265,23 @@ class GatewayOp(BytesOperation):
                 'FCnt': FCnt.hex(),
                 'direction': '01',
             }
+            nprint('---Original fields---')
+            pprint(mic_fields)
             caled_mic = DeviceOp.cal_mic(key=NwkSKey, **mic_fields)
             if caled_mic == MIC.hex():
-                nprint('Dlk normal pcks, MIC matched')
+                nprint('---MIC matched---')
                 # Decrypt
                 decrypt_fields = {
                     'DevAddr': DevAddr.hex(),
                     'FCnt': FCnt.hex(),
+                    'direction': '01',
                 }
+                if FPort == b'\x00':
+                    key = NwkSKey
+                else:
+                    key = AppSKey
                 FRMPayload = DeviceOp.encrypt(
-                    key=AppSKey,
+                    key=key,
                     payload=FRMPayload,
                     **decrypt_fields
                 )
@@ -296,6 +305,8 @@ class GatewayOp(BytesOperation):
             return None
         else:
             txpk = downlink[4:]
+            nprint('---TXPK---')
+            print(txpk)
             txpk_json = json.loads(txpk.decode('ascii'))
             return txpk_json.get('txpk')
 
@@ -388,10 +399,14 @@ class DeviceOp(BytesOperation):
         if typ == 'normal':
             # pdb.set_trace()
             msg = '{MHDR}{FHDR}{FPort}{FRMPayload}'.format(**kwargs)
+            print(msg)
+            print(len(msg))
             msg_bytes = bytearray.fromhex(msg)
-            msg_length = '{:0>2x}'.format(len(msg_bytes))
+            msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
             B0 = DeviceOp._B0(msg_length=msg_length, **kwargs)
             obj_msg = B0 + msg
+            print(obj_msg)
+            print(len(obj_msg))
             obj_msg = bytearray.fromhex(obj_msg)
         elif typ == 'join':
             msg = '{MHDR}{AppEUI}{DevEUI}{DevNonce}'.format(**kwargs)
@@ -411,9 +426,11 @@ class DeviceOp(BytesOperation):
 
     @staticmethod
     def encrypt(key, payload, **kwargs):
-        pld_len = len(payload) // 2
-        payload = Padding.pad(payload, 16)
+        pld_len = len(payload)
+        eprint('---FRMPayload Length---')
+        print(pld_len)
         k = math.ceil(pld_len / 16)
+        payload += b'\x00'*(16*k - pld_len)
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
         for i in range(1, k + 1):
@@ -422,7 +439,7 @@ class DeviceOp(BytesOperation):
             Ai = bytearray.fromhex(_A_each)
             Si = cryptor.encrypt(Ai)
             S += Si
-        return b''.join(DeviceOp.bytes_xor(S, payload))[:pld_len * 2 + 1]
+        return b''.join(DeviceOp.bytes_xor(S, payload))[:pld_len]
 
     @staticmethod
     def gen_keys(AppKey, NetID, AppNonce, DevNonce):
@@ -464,8 +481,9 @@ class DeviceOp(BytesOperation):
     def form_payload(self, NwkSKey, AppSKey, **kwargs):
         FRMPayload = kwargs.pop('FRMPayload')
         FPort = kwargs.get('FPort')
-        if FPort == 0:
+        if FPort == '00':
             enc_key = NwkSKey
+            FRMPayload = bytes.fromhex(FRMPayload)
         else:
             enc_key = AppSKey
         if FRMPayload:
