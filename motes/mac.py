@@ -2,17 +2,24 @@ import math
 import time
 import base64
 import json
+import logging
+import secrets
+import struct
 from pprint import pprint
 from colorline import cprint
 from functools import partial
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
-from Crypto.Util import Padding
+# from Crypto.Util import Padding
 
 nprint = partial(cprint, color='g', bcolor='k')
 eprint = partial(cprint, color='c', bcolor='r')
-import pdb
+
+
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
+
+
+logger = logging.getLogger('main')
 
 
 class BytesOperation:
@@ -38,7 +45,10 @@ class GatewayOp(BytesOperation):
     Gateway from Semtech
     '''
     def __init__(self, gateway_id):
-        self.gateway_id = gateway_id
+        self.gateway_id = bytes.fromhex(gateway_id)
+        self.version = b'\x02'
+        self.pull_id = b'\x02'
+        self.token_length = 2
         self._call = {
             'pull': self.pull_data,
             'push': self.push_data,
@@ -143,20 +153,33 @@ class GatewayOp(BytesOperation):
     def _b64data(self, data):
         return base64.b64encode(bytearray.fromhex(data)).decode()
 
-    def pull_data(self, version='02', token='83ec', identifier='02'):
-        self.data_dict = {
-            'version': version,
-            'token': token,
-            'identifier': identifier,
-            'gateway_id': self.gateway_id,
-        }
-        self.bytes_str = (
-            '{version}'
-            '{token}'
-            '{identifier}'
-            '{gateway_id}'.format(**self.data_dict)
-        )
-        return bytearray.fromhex(self.bytes_str)
+    @property
+    def pull_data(self):
+        token = secrets.token_bytes(self.token_length)
+        return b''.join([
+            self.version,
+            token,
+            self.pull_id,
+            self.gateway_id
+        ])
+
+    def pull(self, transmitter):
+        try:
+            transmitter.send(self.pull_data)
+        except Exception:
+            return False
+        while True:
+            try:
+                res = transmitter.recv()
+            except Exception:
+                return False
+            else:
+                print(res)
+                return True
+
+    def parse_pullack(self, pullack):
+        pullack = memoryview(pullack)
+        pass
 
     def push_data(
         self,
@@ -202,7 +225,7 @@ class GatewayOp(BytesOperation):
 
     def get_txpk_data(self, keys, txpk):
         macpayload = base64.b64decode(txpk.get('data'))
-        nprint('Dlk MAC Payload in hex:')
+        nprint('RAW Dlk MAC Payload in hex:')
         print(macpayload.hex())
         MHDR = macpayload[0:1]
         macpayload = macpayload[1:]
@@ -399,14 +422,10 @@ class DeviceOp(BytesOperation):
         if typ == 'normal':
             # pdb.set_trace()
             msg = '{MHDR}{FHDR}{FPort}{FRMPayload}'.format(**kwargs)
-            print(msg)
-            print(len(msg))
             msg_bytes = bytearray.fromhex(msg)
             msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
             B0 = DeviceOp._B0(msg_length=msg_length, **kwargs)
             obj_msg = B0 + msg
-            print(obj_msg)
-            print(len(obj_msg))
             obj_msg = bytearray.fromhex(obj_msg)
         elif typ == 'join':
             msg = '{MHDR}{AppEUI}{DevEUI}{DevNonce}'.format(**kwargs)
@@ -428,7 +447,6 @@ class DeviceOp(BytesOperation):
     def encrypt(key, payload, **kwargs):
         pld_len = len(payload)
         eprint('---FRMPayload Length---')
-        print(pld_len)
         k = math.ceil(pld_len / 16)
         payload += b'\x00'*(16*k - pld_len)
         cryptor = AES.new(key, AES.MODE_ECB)

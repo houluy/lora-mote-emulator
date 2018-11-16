@@ -1,49 +1,27 @@
 import argparse
+import json
+import os
+import shutil
+import struct
+import sys
+import threading
+import time
 from pprint import pprint
 
 import yaml
-import shutil
-from motes import network, mac
+
+from motes import mac, network
 
 nprint = mac.nprint
 
-# import pdb
-
-import threading
-
-import time
-
-import json
-import os
-import struct
-
 parser = argparse.ArgumentParser(
-    description='LoRa server test'
+    description='Tool for test on LoRaWAN server'
 )
-# parser.add_argument(
-#     'target',
-#     help='test simple/full server',
-#     choices=['simple', 'full'],
-#     default='simple'
-# )
-# parser.add_argument(
-#     '-t',
-#     '--data-type',
-#     help='Specify which kind of packages',
-#     choices=['pull', 'push', 'join', 'stat', 'rxpk'],
-#     dest='data_type'
-# )
-# parser.add_argument(
-#     '-i',
-#     '--index',
-#     type=int,
-#     help='Specify which test case',
-# )
 
 parser.add_argument(
     'type',
     help='Data type of uplink',
-    choices=['join', 'app'],
+    choices=['join', 'app', 'pull'],
     default='join'
 )
 
@@ -77,16 +55,12 @@ config_file = 'config.yml'
 device_info_file = 'device.json'
 original_file = 'device_back.json'
 
-if args.new:
-    shutil.copyfile(original_file, device_info_file)
-
 with open(config_file) as f:
     config = yaml.load(f)
 
-with open(device_info_file) as f:
+with open(original_file) as f:
     device_info = json.load(f)
-# basic_config = config.get('target').get(args.target)
-# target = (config.get('host'), basic_config.get('port'))
+
 target = (config.get('dest').get('hostname'), config.get('dest').get('port'))
 local = (config.get('src').get('hostname'), config.get('src').get('port'))
 keys = device_info.get('keys')
@@ -97,12 +71,21 @@ keys = {
 gateway_id = device_info.get('Gateway').get('GatewayEUI')
 device_handler = mac.DeviceOp()
 gateway_handler = mac.GatewayOp(gateway_id)
-
-pull_data = gateway_handler.pull_data()
-
 udp_client = network.UDPClient(target, address=local)
-udp_client.send(pull_data)
+
+if args.type == 'pull':
+    res = gateway_handler.pull(udp_client)
+    if res:
+        sys.exit(0)
+    else:
+        print('FATAL ERROR')
+
+if args.new:
+    shutil.copyfile(original_file, device_info_file)
+
 device = device_info.get('Device')
+
+
 def uplink(udp_client, typ='app'):
     while True:
         if typ == 'join':
@@ -224,26 +207,3 @@ downlink_thread.start()
 uplink_thread.start()
 downlink_thread.join()
 uplink_thread.join()
-
-
-
-# if args.type == 'app':
-#     keys = device_handler.get_keys(DevAddr)
-#     NwkSKey, AppSKey, AppKey = [bytearray.fromhex(x) for x in keys]
-#     dlk_key = AppSKey
-#  mic = device_handler.cal_mic(key=NwkSKey, **kwargs)
-#  enc_msg = device_handler.encrypt(key=AppSKey, **kwargs)
-# else:
-#     dlk_key = AppKey = bytes.fromhex('1d01d94541d57b101d01d94541d57b10')
-#     # joinpayload = device_handler.form_join(
-#     #     key=AppKey,
-#     #     **join_kwargs
-#     # )
-#     # print('joinp: {}'.format(joinpayload))
-#     # data = gateway_handler.push_data(data=joinpayload)
-
-#  udp_address = ('10.3.242.235', 12367)
-#  pull_data = gateway_handler.pull_data()
-
-#  udp_client = network.UDPClient(target, address=udp_address)
-#  udp_client.send(pull_data)
