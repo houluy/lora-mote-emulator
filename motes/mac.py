@@ -49,6 +49,7 @@ class GatewayOp(BytesOperation):
         self.version = b'\x02'
         self.pull_id = b'\x02'
         self.token_length = 2
+        self.pullack_f = '<s2ss'
         self._call = {
             'pull': self.pull_data,
             'push': self.push_data,
@@ -174,11 +175,16 @@ class GatewayOp(BytesOperation):
             except Exception:
                 return False
             else:
-                print(res)
+                self.parse_pullack(res[0])
                 return True
 
     def parse_pullack(self, pullack):
         pullack = memoryview(pullack)
+        try:
+            print(struct.unpack(self.pullack_f, pullack))
+        except struct.error:
+            print('FATAL ERROR: {}'.format(pullack.tobytes()))
+
         pass
 
     def push_data(
