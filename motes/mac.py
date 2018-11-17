@@ -181,11 +181,11 @@ class GatewayOp(BytesOperation):
     def parse_pullack(self, pullack):
         pullack = memoryview(pullack)
         try:
-            print(struct.unpack(self.pullack_f, pullack))
+            version, token, identifier = struct.unpack(self.pullack_f, pullack)
         except struct.error:
             print('FATAL ERROR: {}'.format(pullack.tobytes()))
-
-        pass
+        else:
+            logger.info('PULL ACK: Version: {}, Token: {}, Identifier:{}'.format(version, token, identifier))
 
     def push_data(
         self,

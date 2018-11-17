@@ -6,6 +6,7 @@ import struct
 import sys
 import threading
 import time
+import logging
 from pprint import pprint
 
 import yaml
@@ -13,6 +14,8 @@ import yaml
 from motes import mac, network
 
 nprint = mac.nprint
+logger = logging.getLogger('main')
+logger.setLevel(logging.DEBUG)
 
 parser = argparse.ArgumentParser(
     description='Tool for test on LoRaWAN server'
