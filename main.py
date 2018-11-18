@@ -7,15 +7,15 @@ import sys
 import threading
 import time
 import logging
+import socket
 from pprint import pprint
 
 import yaml
 
-from motes import mac, network
+from motes import log, mac, network
 
 nprint = mac.nprint
 logger = logging.getLogger('main')
-logger.setLevel(logging.DEBUG)
 
 parser = argparse.ArgumentParser(
     description='Tool for test on LoRaWAN server'
@@ -77,11 +77,14 @@ gateway_handler = mac.GatewayOp(gateway_id)
 udp_client = network.UDPClient(target, address=local)
 
 if args.type == 'pull':
-    res = gateway_handler.pull(udp_client)
-    if res:
+    try:
+        gateway_handler.pull(udp_client)
+    except socket.timeout as e:
+        logger.error('Socket Timeout, remote server is unreachable')
+    except struct.error as e:
+        logger.error('struct unpacking ERROR {}'.format(e))
+    finally:
         sys.exit(0)
-    else:
-        print('FATAL ERROR')
 
 if args.new:
     shutil.copyfile(original_file, device_info_file)

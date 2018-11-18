@@ -2,8 +2,9 @@ import socket
 
 
 class UDPClient:
-    def __init__(self, target, address=None):
+    def __init__(self, target, address=None, timeout=10):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.s.settimeout(timeout)
         if address:
             self.s.bind(address)
         self.target = target

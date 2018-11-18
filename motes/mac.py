@@ -49,7 +49,7 @@ class GatewayOp(BytesOperation):
         self.version = b'\x02'
         self.pull_id = b'\x02'
         self.token_length = 2
-        self.pullack_f = '<s2ss'
+        self.pullack_f = '<s2ss8s'
         self._call = {
             'pull': self.pull_data,
             'push': self.push_data,
@@ -165,27 +165,23 @@ class GatewayOp(BytesOperation):
         ])
 
     def pull(self, transmitter):
-        try:
-            transmitter.send(self.pull_data)
-        except Exception:
-            return False
+        transmitter.send(self.pull_data)
         while True:
-            try:
-                res = transmitter.recv()
-            except Exception:
-                return False
-            else:
-                self.parse_pullack(res[0])
-                return True
+            res = transmitter.recv()
+            self.parse_pullack(res[0])
+            return True
 
     def parse_pullack(self, pullack):
         pullack = memoryview(pullack)
-        try:
-            version, token, identifier = struct.unpack(self.pullack_f, pullack)
-        except struct.error:
-            print('FATAL ERROR: {}'.format(pullack.tobytes()))
-        else:
-            logger.info('PULL ACK: Version: {}, Token: {}, Identifier:{}'.format(version, token, identifier))
+        version, token, identifier, gateway_eui =\
+            struct.unpack(self.pullack_f, pullack)
+        logger.info(
+            ('PULL ACK: Version: {}, '
+                'Token: {},'
+                'Identifier:{},'
+                'GatewayEUI: {}').format(
+                version.hex(), token.hex(), identifier.hex(),
+                gateway_eui.hex()))
 
     def push_data(
         self,
