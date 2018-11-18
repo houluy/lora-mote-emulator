@@ -1,12 +1,12 @@
 {
   "Device": {
     "AppEUI": "9816be466f467a17",
-    "DevEUI": "AAAAAAAAAAAAAAAA"
+    "DevEUI": "ffeff37070e3e461"
   },
   "keys": {
     "AppKey": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
   },
   "Gateway": {
-    "GatewayEUI": "bbbbbbbbbbbbbbbb"
+    "GatewayEUI": "0000000000000000"
   }
 }

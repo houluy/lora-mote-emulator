@@ -3,7 +3,7 @@ LoRa Motes Emulator
 
 This is a useful tool to test LoRa server.
 
-To emulate end devices (AKA Motes in |LoRaWAN(TM)| protocol)
+To emulate end devices (a.k.a. Motes in |LoRaWAN(TM)| protocol)
 
 *Support* |LoRaWAN(TM)| *1.0.2 protocol*
 
