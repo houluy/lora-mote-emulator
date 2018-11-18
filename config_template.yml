@@ -1,6 +1,6 @@
 dest:
-    hostname: 10.3.242.235
-    port: 12234
+    hostname: localhost
+    port: 1700
 src:
-    hostname: 10.3.242.235
-    port: 3344
+    hostname: localhost
+    port: 1701
