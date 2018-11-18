@@ -51,10 +51,6 @@ class GatewayOp(BytesOperation):
         self.push_id = b'\x00'
         self.token_length = 2
         self.pullack_f = '<s2ss8s'
-        self._call = {
-            'pull': self.pull_data,
-            'push': self.push_data,
-        }
         self.gateway_attributes = [
             'version',
             'token',
@@ -119,29 +115,57 @@ class GatewayOp(BytesOperation):
         }
         self._default_data = 'gIh3ZlWEIhEiIiIiEwhl92tzPc8CNUC0'
 
-    def _add_data_to_rxpk(self, rxpk, data, data_size=17):
-        rxpk['rxpk'][0]['size'] = data_size
-        rxpk['rxpk'][0]['data'] = data
+    def add_data(self, rxpk, data):
+        rxpk['rxpk'][0].update({
+            'size': len(data),
+            'data': data,
+        })
         return rxpk
 
-    def form_gateway_data(self, data=None, enc=False, rxpk=None, stat=None):
-        data_size = len(data) // 2
-        if data is None:
-            data = self._default_data
-        else:
-            if enc:
-                data = self._b64data(data)
-        if rxpk is None:
-            rxpk = self._add_data_to_rxpk(self._default_rxpk, data, data_size)
-        if stat is None:
-            stat = self._default_stat
+    @property
+    def stat(self):
+        return {
+            "stat": {
+                "time": time.strftime(GMTformat, time.localtime()),
+                "rxnb": 1,
+                "rxok": 0,
+                "rxfw": 0,
+                "ackr": 100,
+                "dwnb": 0,
+                "txnb": 0,
+            }
+        }
+
+    @property
+    def rxpk(self):
+        return {
+            'rxpk': [{
+                "tmst": int(time.time()),
+                "chan": 7,
+                "rfch": 0,
+                "freq": 435.9,
+                "stat": 1,
+                "modu": 'LORA',
+                "datr": 'SF12BW125',
+                "codr": '4/5',
+                "lsnr": 2,
+                "rssi": -119,
+                "size": 17,
+                "data": '',
+            }]
+        }
+
+    def form_push_data(self, data):
+        data = self.b64data(data)
+        rxpk = self.add_data(self.rxpk, data)
+        stat = self.stat
         rxpk.update(stat)
         return json.dumps(
             rxpk
         ).encode('ascii')
 
-    def _b64data(self, data):
-        return base64.b64encode(bytearray.fromhex(data)).decode()
+    def b64data(self, data):
+        return base64.b64encode(data).decode()
 
     @property
     def pull_data(self):
@@ -173,7 +197,7 @@ class GatewayOp(BytesOperation):
                 gateway_eui.hex()))
 
     def push_data(self, data):
-        json_obj = self.form_gateway_data(data=data, enc=True)
+        json_obj = self.form_push_data(data=data)
         token = secrets.token_bytes(self.token_length)
         return b''.join([
             self.version,
@@ -182,6 +206,13 @@ class GatewayOp(BytesOperation):
             self.gateway_id,
             json_obj,
         ])
+
+    def push(self, data, transmitter):
+        transmitter.send(self.push_data(data))
+        while True:
+            pullresp = transmitter.recv()
+            logger.info('pullresp: {}'.format(pullresp))
+            return True
 
     def form_json(self, attribute, typ='stat', **params):
         data = {
@@ -205,7 +236,7 @@ class GatewayOp(BytesOperation):
         MHDR, macpayload, mic = struct.unpack(pullresp_f, data)
         logger.info('Downlink MHDR: {}, MAC payload: {}, MIC: {}'.format(
                     MHDR.hex(), macpayload.hex(), mic.hex()))
-        if (int.from_bytes(MHDR, 'big') >> 5) == 1:
+        if (int(MHDR, 16) >> 5) == 1:
             AppKey = keys.get('AppKey')
             macpayload = DeviceOp.join_acpt_decrypt(
                 key=AppKey,
@@ -313,6 +344,7 @@ class GatewayOp(BytesOperation):
 class DeviceOp(BytesOperation):
     devnoncelen = 2
     miclen = 4
+    joinreq_f = '<s8s8s2s4s'
 
     def __init__(self):
         self.attributes = [
@@ -338,10 +370,9 @@ class DeviceOp(BytesOperation):
             'FOpts',
         ]
 
-    def join(self, appeui, deveui, appkey, gateway):
-
+    def join(self, appeui, deveui, appkey, gateway, transmitter):
         join_data = self.form_join(appeui, deveui, appkey)
-
+        gateway.push(join_data, transmitter)
 
     @staticmethod
     def form_FCtrl(
@@ -416,7 +447,7 @@ class DeviceOp(BytesOperation):
             obj_msg = bytearray.fromhex(msg)
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(msg)
-        return cobj.digest()[:self.miclen]
+        return cobj.digest()[:DeviceOp.miclen]
 
     @staticmethod
     def join_acpt_decrypt(key, join_acpt):
@@ -459,21 +490,22 @@ class DeviceOp(BytesOperation):
     def form_join(self, appeui, deveui, appkey):
         devnonce = secrets.token_bytes(self.devnoncelen)
         mhdr = b'\x00'
-        mic = DeviceOp.cal_mic(
+        mic = self.cal_mic(
             key=appkey,
             typ='join',
-            AppEUI=appeui,
-            DevEUI=deveui,
-            DevNonce=devnonce,
-            MHDR=mhdr
+            appeui=appeui,
+            deveui=deveui,
+            devnonce=devnonce,
+            mhdr=mhdr
         )
-        return b''.join([
+        return struct.pack(
+            self.joinreq_f,
             mhdr,
-            appeui,
-            deveui,
-            devnonce,
-            mic
-        ])
+            appeui[::-1],
+            deveui[::-1],
+            devnonce[::-1],
+            mic[::-1]
+        )
 
     def form_payload(self, NwkSKey, AppSKey, **kwargs):
         FRMPayload = kwargs.pop('FRMPayload')
