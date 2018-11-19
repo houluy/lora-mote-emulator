@@ -10,7 +10,7 @@ from colorline import cprint
 from functools import partial
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
-# from Crypto.Util import Padding
+from Crypto.Util import Padding
 
 nprint = partial(cprint, color='g', bcolor='k')
 eprint = partial(cprint, color='c', bcolor='r')
@@ -41,16 +41,16 @@ class BytesOperation:
 
 
 class GatewayOp(BytesOperation):
-    '''
-    Gateway from Semtech
-    '''
+    pullack_f = '<s2ss8s'
+    pushack_f = '<s2ss'
+    pullresp_f = '<s2ss'
+
     def __init__(self, gateway_id):
         self.gateway_id = bytes.fromhex(gateway_id)
         self.version = b'\x02'
         self.pull_id = b'\x02'
         self.push_id = b'\x00'
         self.token_length = 2
-        self.pullack_f = '<s2ss8s'
         self.gateway_attributes = [
             'version',
             'token',
@@ -189,9 +189,9 @@ class GatewayOp(BytesOperation):
         version, token, identifier, gateway_eui =\
             struct.unpack(self.pullack_f, pullack)
         logger.info(
-            ('PULL ACK: Version: {}, '
-                'Token: {},'
-                'Identifier:{},'
+            ('PULL ACK -\n Version: {}, '
+                'Token: {}, '
+                'Identifier:{}, '
                 'GatewayEUI: {}').format(
                 version.hex(), token.hex(), identifier.hex(),
                 gateway_eui.hex()))
@@ -207,12 +207,49 @@ class GatewayOp(BytesOperation):
             json_obj,
         ])
 
-    def push(self, data, transmitter):
+    def push(self, data, transmitter, mote):
         transmitter.send(self.push_data(data))
         while True:
+            pushack = transmitter.recv()
+            self.parse_pushack(pushack[0])
             pullresp = transmitter.recv()
-            logger.info('pullresp: {}'.format(pullresp))
+            self.parse_pullresp(pullresp[0], mote)
             return True
+
+    def parse_pushack(self, pushack):
+        pushack = memoryview(pushack)
+        version, token, identifier = struct.unpack(
+            self.pushack_f,
+            pushack
+        )
+        logger.info(
+            ('PUSH ACK -\n'
+                'Version: {}, '
+                'Token: {}, '
+                'Identifier: {}').format(
+                    version.hex(),
+                    token.hex(),
+                    identifier.hex(),
+                ))
+
+    def parse_pullresp(self, pullresp, mote):
+        pullresplen = len(pullresp)
+        pullresp_f = self.pullresp_f + '{}s'.format(pullresplen - 4)
+        version, token, identifier, txpk = struct.unpack(
+            pullresp_f,
+            pullresp,
+        )
+        txpk = json.loads(txpk.decode('ascii'))['txpk']
+        logger.info(
+            ('PULL RESP - \n'
+                'Version: {}, '
+                'Token: {}, '
+                'Identifier: {},\n').format(
+                    version.hex(),
+                    token.hex(),
+                    identifier.hex(),
+                ))
+        self.parse_txpk(txpk, mote)
 
     def form_json(self, attribute, typ='stat', **params):
         data = {
@@ -227,47 +264,44 @@ class GatewayOp(BytesOperation):
         rxpk = self._add_data_to_rxpk(rxpk=self._default_rxpk, data=raw_data)
         return rxpk
 
-    def get_txpk_data(self, keys, txpk):
+    def parse_txpk(self, txpk, mote):
         data = memoryview(base64.b64decode(txpk.get('data')))
-        logger.info('Downlink MACPayload: {}'.format(data.hex()))
+        data = mote.joinacpt_decrypt(data)
         msglen = len(data)
         pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
         pullresp_f = '<s{}s4s'.format(pldlen)
-        MHDR, macpayload, mic = struct.unpack(pullresp_f, data)
+        mhdr, macpayload, mic = struct.unpack(pullresp_f, data)
         logger.info('Downlink MHDR: {}, MAC payload: {}, MIC: {}'.format(
-                    MHDR.hex(), macpayload.hex(), mic.hex()))
-        if (int(MHDR, 16) >> 5) == 1:
-            AppKey = keys.get('AppKey')
-            macpayload = DeviceOp.join_acpt_decrypt(
-                key=AppKey,
-                join_acpt=macpayload
-            )
-            AppNonce = macpayload[0:3]
-            NetID = macpayload[3:6]
-            DevAddr = macpayload[6:10]
-            DLSettings = macpayload[10:11]
-            RxDelay = macpayload[11:12]
-            CFList = macpayload[12:-4]
-            MIC = macpayload[-4:]
-            MIC_obj = {
-                'MHDR': MHDR.hex(),
-                'AppNonce': AppNonce.hex(),
-                'NetID': NetID.hex(),
-                'DevAddr': DevAddr.hex(),
-                'DLSettings': DLSettings.hex(),
-                'RxDelay': RxDelay.hex(),
-                'CFList': '',
-            }
-            if CFList:
-                MIC_obj['CFList'] = CFList.hex()
-            mic = DeviceOp.cal_mic(
-                key=AppKey,
+                    mhdr.hex(), macpayload.hex(), mic.hex()))
+        if (int.from_bytes(mhdr, 'big') >> 5) == 1:
+            appnonce, netid, devaddr, dlsettings, rxdelay, cflist =\
+                mote.parse_joinacpt(macpayload, mic)
+            cflist = cflist if cflist else b''
+            vmic = mote.cal_mic(
+                mhdr,
+                key=mote.appkey,
                 typ='acpt',
-                **MIC_obj
+                appnonce=appnonce,
+                netid=netid,
+                devaddr=devaddr,
+                dlsettings=dlsettings,
+                rxdelay=rxdelay,
+                cflist=cflist,
             )
-            if (MIC.hex() == mic):
-                print('MIC matched')
-                return MIC_obj
+            if (vmic == mic):
+                logger.info(
+                    ('Join Accept (MIC verified) -\n'
+                        'AppNonce: {}'
+                        'NetID: {}'
+                        'DevAddr: {}'
+                        'DLSettings: {}'
+                        'RxDelay: {}\n').format(
+                            appnonce,
+                            netid,
+                            devaddr,
+                            dlsettings,
+                            rxdelay
+                        ))
             else:
                 raise ValueError('MIC mismatch')
         else:
@@ -297,7 +331,7 @@ class GatewayOp(BytesOperation):
             }
             nprint('---Original fields---')
             pprint(mic_fields)
-            caled_mic = DeviceOp.cal_mic(key=NwkSKey, **mic_fields)
+            caled_mic = Mote.cal_mic(key=NwkSKey, **mic_fields)
             if caled_mic == MIC.hex():
                 nprint('---MIC matched---')
                 # Decrypt
@@ -310,7 +344,7 @@ class GatewayOp(BytesOperation):
                     key = NwkSKey
                 else:
                     key = AppSKey
-                FRMPayload = DeviceOp.encrypt(
+                FRMPayload = Mote.encrypt(
                     key=key,
                     payload=FRMPayload,
                     **decrypt_fields
@@ -341,12 +375,16 @@ class GatewayOp(BytesOperation):
             return txpk_json.get('txpk')
 
 
-class DeviceOp(BytesOperation):
+class Mote(BytesOperation):
     devnoncelen = 2
     miclen = 4
     joinreq_f = '<s8s8s2s4s'
+    joinacpt_f = '<3s3s4sss'
 
-    def __init__(self):
+    def __init__(self, appeui, deveui, appkey):
+        self.appeui = appeui[::-1]
+        self.deveui = deveui[::-1]
+        self.appkey = appkey
         self.attributes = [
             'DevAddr',
             'MHDR',
@@ -370,9 +408,13 @@ class DeviceOp(BytesOperation):
             'FOpts',
         ]
 
-    def join(self, appeui, deveui, appkey, gateway, transmitter):
-        join_data = self.form_join(appeui, deveui, appkey)
-        gateway.push(join_data, transmitter)
+    @classmethod
+    def from_file(cls, file):
+        pass
+
+    def join(self, gateway, transmitter):
+        join_data = self.form_join()
+        gateway.push(join_data, transmitter, self)
 
     @staticmethod
     def form_FCtrl(
@@ -390,27 +432,27 @@ class DeviceOp(BytesOperation):
         else:
             FCtrl = (ADR << 7) + (0 << 6) + (ACK << 5) + (FPending << 4)
             FCtrl += (FOptsLen & 0b1111)
-        return DeviceOp.int2hexstring(FCtrl)
+        return Mote.int2hexstring(FCtrl)
 
     @staticmethod
     def form_FHDR(DevAddr, FCtrl, FCnt, FOpts=''):
-        DevAddr = DeviceOp.str_rev(DevAddr)
+        DevAddr = Mote.str_rev(DevAddr)
         if len(FCnt) == 8:
             FCnt = FCnt[:4]
-        # FCnt = DeviceOp.str_rev(FCnt)
+        # FCnt = Mote.str_rev(FCnt)
         FCtrl['FOptsLen'] = len(FOpts) // 2
-        FCtrl = DeviceOp.form_FCtrl(**FCtrl)
+        FCtrl = Mote.form_FCtrl(**FCtrl)
         return '{}{}{}{}'.format(DevAddr, FCtrl, FCnt, FOpts)
 
     @staticmethod
     def _base_block(**kwargs):
-        kwargs['DevAddr'] = DeviceOp.str_rev(kwargs.get('DevAddr'))
-        kwargs['FCnt'] = DeviceOp.str_rev(kwargs.get('FCnt'))
+        kwargs['DevAddr'] = Mote.str_rev(kwargs.get('DevAddr'))
+        kwargs['FCnt'] = Mote.str_rev(kwargs.get('FCnt'))
         return '00000000{direction}{DevAddr}{FCnt}00'.format(**kwargs)
 
     @staticmethod
     def _B0(**kwargs):
-        base_block = DeviceOp._base_block(**kwargs)
+        base_block = Mote._base_block(**kwargs)
         return '49{base_block}{msg_length}'.format(
             base_block=base_block,
             msg_length=kwargs.get('msg_length')
@@ -418,57 +460,68 @@ class DeviceOp(BytesOperation):
 
     @staticmethod
     def _A(**kwargs):
-        base_block = DeviceOp._base_block(**kwargs)
+        base_block = Mote._base_block(**kwargs)
         return '01{base_block}{i}'.format(
             base_block=base_block,
             i=kwargs.get('i')
         )
 
     @staticmethod
-    def cal_mic(key, typ='normal', **kwargs):
+    def cal_mic(mhdr, key, typ='normal', **kwargs):
         if typ == 'normal':
-            # pdb.set_trace()
             msg = '{MHDR}{FHDR}{FPort}{FRMPayload}'.format(**kwargs)
             msg_bytes = bytearray.fromhex(msg)
             msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
-            B0 = DeviceOp._B0(msg_length=msg_length, **kwargs)
+            B0 = Mote._B0(msg_length=msg_length, **kwargs)
             obj_msg = B0 + msg
             obj_msg = bytearray.fromhex(obj_msg)
         elif typ == 'join':
             msg = b''.join([
-                kwargs.get('mhdr'),
+                mhdr,
                 kwargs.get('appeui'),
                 kwargs.get('deveui'),
                 kwargs.get('devnonce'),
             ])
         else:
-            msg = '{MHDR}{AppNonce}{NetID}{DevAddr}\
-                {DLSettings}{RxDelay}{CFList}'.format(**kwargs)
-            obj_msg = bytearray.fromhex(msg)
+            msg = b''.join([
+               mhdr,
+               kwargs.get('appnonce'),
+               kwargs.get('netid'),
+               kwargs.get('devaddr'),
+               kwargs.get('dlsettings'),
+               kwargs.get('rxdelay'),
+               kwargs.get('cflist'),
+            ])
+            print('msg: {}'.format(msg.hex()))
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(msg)
-        return cobj.digest()[:DeviceOp.miclen]
+        return cobj.digest()[:Mote.miclen]
 
-    @staticmethod
-    def join_acpt_decrypt(key, join_acpt):
-        cryptor = AES.new(key, AES.MODE_ECB)
-        return cryptor.encrypt(join_acpt)
+    def joinacpt_decrypt(self, macpayload):
+        macpayloadlen = len(macpayload)
+        print(macpayloadlen)
+        macpayload = bytes(macpayload) + b''.join([
+            b'\x00' for _ in range(16 - macpayloadlen)
+        ])
+        cryptor = AES.new(self.appkey, AES.MODE_ECB)
+        print('Decrypt: {}'.format(macpayload.hex()))
+        decrypt = cryptor.decrypt(macpayload)
+        return decrypt[:macpayloadlen - 4]
 
     @staticmethod
     def encrypt(key, payload, **kwargs):
         pld_len = len(payload)
-        eprint('---FRMPayload Length---')
         k = math.ceil(pld_len / 16)
         payload += b'\x00'*(16*k - pld_len)
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
         for i in range(1, k + 1):
             kwargs['i'] = '{:0>2x}'.format(i)
-            _A_each = DeviceOp._A(**kwargs)
+            _A_each = Mote._A(**kwargs)
             Ai = bytearray.fromhex(_A_each)
             Si = cryptor.encrypt(Ai)
             S += Si
-        return b''.join(DeviceOp.bytes_xor(S, payload))[:pld_len]
+        return b''.join(Mote.bytes_xor(S, payload))[:pld_len]
 
     @staticmethod
     def gen_keys(AppKey, NetID, AppNonce, DevNonce):
@@ -487,24 +540,32 @@ class DeviceOp(BytesOperation):
             'AppSKey': AppSKey.hex(),
         }
 
-    def form_join(self, appeui, deveui, appkey):
-        devnonce = secrets.token_bytes(self.devnoncelen)
+    def form_join(self):
+        devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
         mhdr = b'\x00'
         mic = self.cal_mic(
-            key=appkey,
+            key=self.appkey,
             typ='join',
-            appeui=appeui,
-            deveui=deveui,
+            appeui=self.appeui,
+            deveui=self.deveui,
             devnonce=devnonce,
             mhdr=mhdr
         )
         return struct.pack(
             self.joinreq_f,
             mhdr,
-            appeui[::-1],
-            deveui[::-1],
-            devnonce[::-1],
-            mic[::-1]
+            self.appeui,
+            self.deveui,
+            devnonce,
+            mic
+        )
+
+    def parse_joinacpt(self, joinacpt, mic):
+        joinacptlen = len(joinacpt)
+        self.joinacpt_f += '{}s'.format(joinacptlen - 12)
+        return struct.unpack(
+            self.joinacpt_f,
+            joinacpt
         )
 
     def form_payload(self, NwkSKey, AppSKey, **kwargs):
@@ -518,7 +579,7 @@ class DeviceOp(BytesOperation):
         if FRMPayload:
             if isinstance(FRMPayload, str):
                 FRMPayload = FRMPayload.encode()
-            FRMPayload = DeviceOp.encrypt(
+            FRMPayload = Mote.encrypt(
                 key=enc_key,
                 payload=FRMPayload,
                 **kwargs
@@ -526,14 +587,14 @@ class DeviceOp(BytesOperation):
         else:
             FRMPayload = ''
         if not kwargs.get('FHDR'):
-            FHDR = DeviceOp.form_FHDR(
+            FHDR = Mote.form_FHDR(
                 **{k: kwargs.get(k) for k in self.FHDR_list}
             )
         else:
             FHDR = kwargs.get('FHDR')
         kwargs['FRMPayload'] = FRMPayload
         kwargs['FHDR'] = FHDR
-        MIC = DeviceOp.cal_mic(key=NwkSKey, **kwargs)
+        MIC = Mote.cal_mic(key=NwkSKey, **kwargs)
         return ''.join([
             kwargs.get('MHDR'),
             kwargs.get('FHDR'),

@@ -73,7 +73,7 @@ appeui = bytes.fromhex(device_info.get('AppEUI'))
 deveui = bytes.fromhex(device_info.get('DevEUI'))
 
 gateway_id = device_conf.get('Gateway').get('GatewayEUI')
-device_handler = mac.DeviceOp()
+mote = mac.Mote(appeui, deveui, appkey)
 gateway = mac.GatewayOp(gateway_id)
 udp_client = network.UDPClient(target, address=local)
 
@@ -81,7 +81,7 @@ try:
     if args.type == 'pull':
         gateway.pull(udp_client)
     elif args.type == 'join':
-        device_handler.join(appeui, deveui, appkey, gateway, udp_client)
+        mote.join(gateway, udp_client)
     else:
         raise NotImplementedError
 except socket.timeout as e:
