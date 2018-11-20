@@ -7,6 +7,7 @@ import pickle
 import secrets
 import struct
 import time
+import random
 from functools import partial
 from pprint import pprint
 
@@ -25,25 +26,7 @@ GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 logger = logging.getLogger('main')
 
 
-class BytesOperation:
-    @staticmethod
-    def str_rev(obj_str):
-        return ''.join([
-            obj_str[x:x+2] for x in range(len(obj_str))
-        ][-2::-2])
-
-    @staticmethod
-    def bytes_xor(bytea, byteb):
-        return [bytearray.fromhex(
-            '{:0>2x}'.format(x ^ y)) for (x, y) in zip(bytea, byteb)
-        ]
-
-    @staticmethod
-    def int2hexstring(number):
-        return '{:0>2x}'.format(number)
-
-
-class GatewayOp(BytesOperation):
+class GatewayOp:
     pullack_f = '<s2ss8s'
     pushack_f = '<s2ss'
     pullresp_f = '<s2ss'
@@ -54,69 +37,6 @@ class GatewayOp(BytesOperation):
         self.pull_id = b'\x02'
         self.push_id = b'\x00'
         self.token_length = 2
-        self.gateway_attributes = [
-            'version',
-            'token',
-            'identifier',
-        ]
-        self.stat_attributes = [
-            'time',
-            'lati',
-            'long',
-            'alti',
-            'rxnb',
-            'rxok',
-            'rwfw',
-            'ackr',
-            'dwnb',
-            'txnb',
-        ]
-
-        self.rxpk_attributes = [
-            'time',
-            'tmst',
-            'freq',
-            'chan',
-            'rfch',
-            'stat',
-            'modu',
-            'datr',
-            'codr',
-            'rssi',
-            'lsnr',
-            'size',
-            'data',
-        ]
-
-        self._default_rxpk = {
-            'rxpk': [{
-                "tmst": 854980284,
-                "chan": 7,
-                "rfch": 0,
-                "freq": 435.9,
-                "stat": 1,
-                "modu": 'LORA',
-                "datr": 'SF12BW125',
-                "codr": '4/5',
-                "lsnr": 2,
-                "rssi": -119,
-                "size": 17,
-                "data": '',
-            }]
-        }
-
-        self._default_stat = {
-            "stat": {
-                "time": time.strftime(GMTformat, time.localtime()),
-                "rxnb": 1,
-                "rxok": 0,
-                "rxfw": 0,
-                "ackr": 100,
-                "dwnb": 0,
-                "txnb": 0,
-            }
-        }
-        self._default_data = 'gIh3ZlWEIhEiIiIiEwhl92tzPc8CNUC0'
 
     def add_data(self, rxpk, data):
         rxpk['rxpk'][0].update({
@@ -262,11 +182,6 @@ class GatewayOp(BytesOperation):
             'stat': data
         } if typ == 'stat' else {'rxpk': [data]}
 
-    def form_default_rxpk_data(self):
-        raw_data = 'gIh3ZlWEIhEiIiIijn/FXA=='
-        rxpk = self._add_data_to_rxpk(rxpk=self._default_rxpk, data=raw_data)
-        return rxpk
-
     def parse_txpk(self, txpk, mote):
         data = memoryview(base64.b64decode(txpk.get('data')))
         mhdr = data[:1]
@@ -278,10 +193,59 @@ class GatewayOp(BytesOperation):
         macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
         if (int.from_bytes(mhdr, 'big') >> 5) == 1:
             mote.parse_joinacpt(mhdr, macpayload, mic)
+        else:  # PULL RESP for app data
+            mote.parse_macpld(mhdr, macpayload, mic)
+
+    def parse_dlk(self, downlink):
+        if downlink[3] in (1, 4):
+            return None
         else:
-            NwkSKey = keys.get('NwkSKey')
-            AppSKey = keys.get('AppSKey')
-            DevAddr = macpayload[3::-1]
+            txpk = downlink[4:]
+            nprint('---TXPK---')
+            print(txpk)
+            txpk_json = json.loads(txpk.decode('ascii'))
+            return txpk_json.get('txpk')
+
+
+class Mote:
+    devnoncelen = 2
+    miclen = 4
+    joinreq_f = '<s8s8s2s4s'
+    joinacpt_f = '<3s3s4sss'
+    fhdr_f = '<4ssH'
+
+    def __init__(self, appeui, deveui, appkey, conffile):
+        self.appeui = appeui[::-1]
+        self.deveui = deveui[::-1]
+        self.appkey = appkey
+        self.conffile = conffile
+        self.FHDR_list = [
+            'DevAddr',
+            'FCtrl',
+            'FCnt',
+            'FOpts',
+        ]
+
+    @classmethod
+    def load(cls, file):
+        with open(file, 'rb') as f:
+            obj = pickle.load(f)
+        obj.conffile = file
+        return obj
+
+    def save(self):
+        with open(self.conffile, 'wb') as f:
+            pickle.dump(self, f)
+
+    def join(self, gateway, transmitter):
+        join_data = self.form_join()
+        gateway.push(join_data, transmitter, self)
+
+    def app(self, gateway, transmitter):
+        app_data = self.form_app()
+        gateway.push(app_data, transmitter, self)
+
+DevAddr = macpayload[3::-1]
             FCtrl = macpayload[4:5]
             FOptsLen = (ord(FCtrl) & 0b1111)
             FCnt = macpayload[5:7]
@@ -338,93 +302,19 @@ class GatewayOp(BytesOperation):
             else:
                 raise ValueError('Dlk MIC MISMATCH!!!')
 
-    def parse_dlk(self, downlink):
-        if downlink[3] in (1, 4):
-            return None
-        else:
-            txpk = downlink[4:]
-            nprint('---TXPK---')
-            print(txpk)
-            txpk_json = json.loads(txpk.decode('ascii'))
-            return txpk_json.get('txpk')
-
-
-class Mote(BytesOperation):
-    devnoncelen = 2
-    miclen = 4
-    joinreq_f = '<s8s8s2s4s'
-    joinacpt_f = '<3s3s4sss'
-
-    def __init__(self, appeui, deveui, appkey, conffile):
-        self.appeui = appeui[::-1]
-        self.deveui = deveui[::-1]
-        self.appkey = appkey
-        self.conffile = conffile
-        self.attributes = [
-            'DevAddr',
-            'MHDR',
-            'FCnt',
-            'FPort',
-            'FRMPayload',
-            'FCtrl',
-            'direction',
-            'FOpts',
-        ]
-        self.join_attributes = [
-            'AppEUI',
-            'DevEUI',
-            'DevNonce',
-            'MHDR',
-        ]
-        self.FHDR_list = [
-            'DevAddr',
-            'FCtrl',
-            'FCnt',
-            'FOpts',
-        ]
-
-    @classmethod
-    def load(cls, file):
-        with open(file, 'rb') as f:
-            obj = pickle.load(f)
-        obj.conffile = file
-        return obj
-
-    def save(self):
-        with open(self.conffile, 'wb') as f:
-            pickle.dump(self, f)
-
-    def join(self, gateway, transmitter):
-        join_data = self.form_join()
-        gateway.push(join_data, transmitter, self)
-
-    @staticmethod
-    def form_FCtrl(
-        direction='up',
-        ADR=0,
-        ADRACKReq=0,
-        ACK=0,
-        ClassB=0,
-        FOptsLen=0,
-        FPending=0
-    ):
-        if direction == 'up':
-            FCtrl = (ADR << 7) + (ADRACKReq << 6) + (ACK << 5) + (ClassB << 4)
-            FCtrl += (FOptsLen & 0b1111)
-        else:
-            FCtrl = (ADR << 7) + (0 << 6) + (ACK << 5) + (FPending << 4)
-            FCtrl += (FOptsLen & 0b1111)
+    def form_fctrl(self, foptslen):
+        FCtrl = (ADR << 7) + (ADRACKReq << 6) + (ACK << 5) + (ClassB << 4)
+        FCtrl += (FOptsLen & 0b1111)
+    else:
+        FCtrl = (ADR << 7) + (0 << 6) + (ACK << 5) + (FPending << 4)
+        FCtrl += (FOptsLen & 0b1111)
         return Mote.int2hexstring(FCtrl)
 
-    @staticmethod
-    def form_FHDR(DevAddr, FCtrl, FCnt, FOpts=''):
-        DevAddr = Mote.str_rev(DevAddr)
-        if len(FCnt) == 8:
-            FCnt = FCnt[:4]
-        # FCnt = Mote.str_rev(FCnt)
-        FCtrl['FOptsLen'] = len(FOpts) // 2
-        FCtrl = Mote.form_FCtrl(**FCtrl)
-        return '{}{}{}{}'.format(DevAddr, FCtrl, FCnt, FOpts)
+    def form_fhdr(self, fopts=b''):
+        foptslen = len(fopts)
+        self.fhdr_f += '{}s'.format(foptslen)
+        fctrl = self.form_fctrl(foptslen)
+        return struct.pack(self.fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
 
     @staticmethod
     def _base_block(**kwargs):
@@ -451,10 +341,15 @@ class Mote(BytesOperation):
     @staticmethod
     def cal_mic(mhdr, key, typ='normal', **kwargs):
         if typ == 'normal':
-            msg = '{MHDR}{FHDR}{FPort}{FRMPayload}'.format(**kwargs)
-            msg_bytes = bytearray.fromhex(msg)
-            msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
-            B0 = Mote._B0(msg_length=msg_length, **kwargs)
+            msg = b''.join([
+                mhdr,
+                kwargs.get('fhdr'),
+                kwargs.get('fport'),
+                kwargs.get('msg'),
+            ])
+            msglen = len(msg)
+            #msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
+            B0 = Mote._B0(msglen=msglen, **kwargs)
             obj_msg = B0 + msg
             obj_msg = bytearray.fromhex(obj_msg)
         elif typ == 'join':
@@ -562,14 +457,36 @@ class Mote(BytesOperation):
                         self.dlsettings.hex(),
                         self.rxdelay.hex()
                     ))
+            self.nwkskey, self.appskey = self.gen_keys()
+            self.fcnt = 0
+            self.save()
         else:
             raise ValueError('MIC mismatch')
-        nwkskey, appskey = self.gen_keys()
-        self.save()
 
-    def form_payload(self, NwkSKey, AppSKey, **kwargs):
-        FRMPayload = kwargs.pop('FRMPayload')
-        FPort = kwargs.get('FPort')
+    def form_app(self, msg, fopts):
+        mhdr = b'\x80'
+        fhdr = self.form_fhdr(fopts)
+        fhdrlen = len(fhdr)
+        fport = random.randint(2, 255)
+        msglen = len(msg)
+        app_f = '<s{fhdrlen}sB{msglen}s4s'.format(
+            fhdrlen=fhdrlen,
+            msglen=msglen,
+        )
+        mic = self.cal_mic(
+            mhdr,
+            self.nwkskey,
+            fhdr=fhdr,
+            fport=fport,
+            msg=msg,
+        )
+        return struct.pack(
+            mhdr,
+            fhdr,
+            fport,
+            msg,
+            mic,
+        )
         if FPort == '00':
             enc_key = NwkSKey
             FRMPayload = bytes.fromhex(FRMPayload)

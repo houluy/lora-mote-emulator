@@ -24,30 +24,6 @@ parser.add_argument(
     default='join'
 )
 
-parser.add_argument(
-    '-i',
-    help='Inteval of uplink',
-    type=int,
-    default=5,
-    dest='interval'
-)
-
-parser.add_argument(
-    '-s',
-    help='Sign for single pack',
-    default=False,
-    dest='single',
-    action='store_true'
-)
-
-parser.add_argument(
-    '-n',
-    help='Brand new device',
-    default=False,
-    dest='new',
-    action='store_true'
-)
-
 args = parser.parse_args()
 
 config_file = 'config/config.yml'
@@ -80,6 +56,8 @@ try:
         gateway.pull(udp_client)
     elif args.type == 'join':
         mote.join(gateway, udp_client)
+    elif args.type == 'app':
+        mote.app(gateway, udp_client)
     else:
         raise NotImplementedError
 except socket.timeout as e:
@@ -90,10 +68,6 @@ except Exception as e:
     logger.critical('Unhandled bug')
     print(e)
     raise e
-sys.exit(0)
-
-if args.new:
-    shutil.copyfile(original_file, device_info_file)
 
 # def uplink(udp_client, typ='app'):
 #     while True:
