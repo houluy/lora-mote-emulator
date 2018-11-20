@@ -1,19 +1,16 @@
 import argparse
 import json
-import os
 import shutil
 import struct
 import sys
-import threading
-import time
 import pdb
+import pickle
 import logging
 import socket
-from pprint import pprint
 
 import yaml
 
-from motes import log, mac, network
+from motes import mac, network
 
 nprint = mac.nprint
 logger = logging.getLogger('main')
@@ -56,8 +53,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 config_file = 'config.yml'
-device_info_file = 'device.json'
 original_file = 'device_back.json'
+device_file = 'models/device.pkl'
 
 with open(config_file) as f:
     config = yaml.load(f)
@@ -73,7 +70,10 @@ appeui = bytes.fromhex(device_info.get('AppEUI'))
 deveui = bytes.fromhex(device_info.get('DevEUI'))
 
 gateway_id = device_conf.get('Gateway').get('GatewayEUI')
-mote = mac.Mote(appeui, deveui, appkey)
+try:
+    mote = mac.Mote.load(device_file)
+except FileNotFoundError:
+    mote = mac.Mote(appeui, deveui, appkey, device_file)
 gateway = mac.GatewayOp(gateway_id)
 udp_client = network.UDPClient(target, address=local)
 
@@ -89,9 +89,10 @@ except socket.timeout as e:
 except struct.error as e:
     logger.error('struct unpacking ERROR {}'.format(e))
 except Exception as e:
-    logger.critical('Unhandled bug: {}'.format(e))
-finally:
-    sys.exit(0)
+    logger.critical('Unhandled bug')
+    print(e)
+    raise e
+sys.exit(0)
 
 if args.new:
     shutil.copyfile(original_file, device_info_file)

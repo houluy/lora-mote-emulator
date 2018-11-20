@@ -5,6 +5,8 @@ import json
 import logging
 import secrets
 import struct
+import pickle
+import pdb
 from pprint import pprint
 from colorline import cprint
 from functools import partial
@@ -266,44 +268,15 @@ class GatewayOp(BytesOperation):
 
     def parse_txpk(self, txpk, mote):
         data = memoryview(base64.b64decode(txpk.get('data')))
-        data = mote.joinacpt_decrypt(data)
+        mhdr = data[:1]
+        encrypted_data = data[1:]
+        macpayloadmic = mote.joinacpt_decrypt(encrypted_data)
         msglen = len(data)
         pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
-        pullresp_f = '<s{}s4s'.format(pldlen)
-        mhdr, macpayload, mic = struct.unpack(pullresp_f, data)
-        logger.info('Downlink MHDR: {}, MAC payload: {}, MIC: {}'.format(
-                    mhdr.hex(), macpayload.hex(), mic.hex()))
+        pullresp_f = '<{}s4s'.format(pldlen)
+        macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
         if (int.from_bytes(mhdr, 'big') >> 5) == 1:
-            appnonce, netid, devaddr, dlsettings, rxdelay, cflist =\
-                mote.parse_joinacpt(macpayload, mic)
-            cflist = cflist if cflist else b''
-            vmic = mote.cal_mic(
-                mhdr,
-                key=mote.appkey,
-                typ='acpt',
-                appnonce=appnonce,
-                netid=netid,
-                devaddr=devaddr,
-                dlsettings=dlsettings,
-                rxdelay=rxdelay,
-                cflist=cflist,
-            )
-            if (vmic == mic):
-                logger.info(
-                    ('Join Accept (MIC verified) -\n'
-                        'AppNonce: {}'
-                        'NetID: {}'
-                        'DevAddr: {}'
-                        'DLSettings: {}'
-                        'RxDelay: {}\n').format(
-                            appnonce,
-                            netid,
-                            devaddr,
-                            dlsettings,
-                            rxdelay
-                        ))
-            else:
-                raise ValueError('MIC mismatch')
+            mote.parse_joinacpt(mhdr, macpayload, mic)
         else:
             NwkSKey = keys.get('NwkSKey')
             AppSKey = keys.get('AppSKey')
@@ -381,10 +354,11 @@ class Mote(BytesOperation):
     joinreq_f = '<s8s8s2s4s'
     joinacpt_f = '<3s3s4sss'
 
-    def __init__(self, appeui, deveui, appkey):
+    def __init__(self, appeui, deveui, appkey, conffile):
         self.appeui = appeui[::-1]
         self.deveui = deveui[::-1]
         self.appkey = appkey
+        self.conffile = conffile
         self.attributes = [
             'DevAddr',
             'MHDR',
@@ -409,8 +383,15 @@ class Mote(BytesOperation):
         ]
 
     @classmethod
-    def from_file(cls, file):
-        pass
+    def load(cls, file):
+        with open(file, 'rb') as f:
+            obj = pickle.load(f)
+        obj.conffile = file
+        return obj
+
+    def save(self):
+        with open(self.conffile, 'wb') as f:
+            pickle.dump(self, f)
 
     def join(self, gateway, transmitter):
         join_data = self.form_join()
@@ -492,21 +473,17 @@ class Mote(BytesOperation):
                kwargs.get('rxdelay'),
                kwargs.get('cflist'),
             ])
-            print('msg: {}'.format(msg.hex()))
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(msg)
         return cobj.digest()[:Mote.miclen]
 
     def joinacpt_decrypt(self, macpayload):
         macpayloadlen = len(macpayload)
-        print(macpayloadlen)
         macpayload = bytes(macpayload) + b''.join([
             b'\x00' for _ in range(16 - macpayloadlen)
         ])
         cryptor = AES.new(self.appkey, AES.MODE_ECB)
-        print('Decrypt: {}'.format(macpayload.hex()))
-        decrypt = cryptor.decrypt(macpayload)
-        return decrypt[:macpayloadlen - 4]
+        return cryptor.encrypt(macpayload)
 
     @staticmethod
     def encrypt(key, payload, **kwargs):
@@ -523,32 +500,24 @@ class Mote(BytesOperation):
             S += Si
         return b''.join(Mote.bytes_xor(S, payload))[:pld_len]
 
-    @staticmethod
-    def gen_keys(AppKey, NetID, AppNonce, DevNonce):
-        cryptor = AES.new(AppKey, AES.MODE_ECB)
-        pad = '00000000000000'
-        NwkSKeybytes = '01' + AppNonce + NetID + DevNonce + pad
-        AppSKeybytes = '02' + AppNonce + NetID + DevNonce + pad
-        NwkSKeybytes = bytes.fromhex(NwkSKeybytes)
-        AppSKeybytes = bytes.fromhex(AppSKeybytes)
-        # NwkSKeybytes = Padding.pad(NwkSKeybytes, 16)
-        # AppSKeybytes = Padding.pad(AppSKeybytes, 16)
-        NwkSKey = cryptor.encrypt(NwkSKeybytes)
-        AppSKey = cryptor.encrypt(AppSKeybytes)
-        return {
-            'NwkSKey': NwkSKey.hex(),
-            'AppSKey': AppSKey.hex(),
-        }
+    def gen_keys(self):
+        cryptor = AES.new(self.appkey, AES.MODE_ECB)
+        pad = b'\x00\x00\x00\x00\x00\x00\x00'
+        nwkskeymsg = b'\01' + self.appnonce + self.netid + self.devnonce + pad
+        appskeymsg = b'\02' + self.appnonce + self.netid + self.devnonce + pad
+        nwkskey = cryptor.encrypt(nwkskeymsg)
+        appskey = cryptor.encrypt(appskeymsg)
+        return nwkskey, appskey
 
     def form_join(self):
-        devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
+        self.devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
         mhdr = b'\x00'
         mic = self.cal_mic(
             key=self.appkey,
             typ='join',
             appeui=self.appeui,
             deveui=self.deveui,
-            devnonce=devnonce,
+            devnonce=self.devnonce,
             mhdr=mhdr
         )
         return struct.pack(
@@ -556,17 +525,46 @@ class Mote(BytesOperation):
             mhdr,
             self.appeui,
             self.deveui,
-            devnonce,
+            self.devnonce,
             mic
         )
 
-    def parse_joinacpt(self, joinacpt, mic):
-        joinacptlen = len(joinacpt)
-        self.joinacpt_f += '{}s'.format(joinacptlen - 12)
-        return struct.unpack(
-            self.joinacpt_f,
-            joinacpt
+    def parse_joinacpt(self, mhdr, joinacpt, mic):
+        self.cflist = joinacpt[12:] if joinacpt[12:] else b''
+        self.appnonce, self.netid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
+                self.joinacpt_f,
+                joinacpt[:12]
+            )
+        self.cflist = self.cflist if self.cflist else b''
+        vmic = self.cal_mic(
+            mhdr,
+            key=self.appkey,
+            typ='acpt',
+            appnonce=self.appnonce,
+            netid=self.netid,
+            devaddr=self.devaddr,
+            dlsettings=self.dlsettings,
+            rxdelay=self.rxdelay,
+            cflist=self.cflist,
         )
+        if (vmic == mic):
+            logger.info(
+                ('Join Accept (MIC verified) -\n'
+                    'AppNonce: {}, '
+                    'NetID: {}, '
+                    'DevAddr: {}, '
+                    'DLSettings: {}, '
+                    'RxDelay: {}\n').format(
+                        self.appnonce.hex(),
+                        self.netid.hex(),
+                        self.devaddr.hex(),
+                        self.dlsettings.hex(),
+                        self.rxdelay.hex()
+                    ))
+        else:
+            raise ValueError('MIC mismatch')
+        nwkskey, appskey = self.gen_keys()
+        self.save()
 
     def form_payload(self, NwkSKey, AppSKey, **kwargs):
         FRMPayload = kwargs.pop('FRMPayload')
