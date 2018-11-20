@@ -3,8 +3,6 @@ import json
 import shutil
 import struct
 import sys
-import pdb
-import pickle
 import logging
 import socket
 
@@ -52,8 +50,8 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-config_file = 'config.yml'
-original_file = 'device_back.json'
+config_file = 'config/config.yml'
+original_file = 'config/device.json'
 device_file = 'models/device.pkl'
 
 with open(config_file) as f:

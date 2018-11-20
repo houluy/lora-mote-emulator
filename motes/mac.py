@@ -1,15 +1,16 @@
-import math
-import time
 import base64
 import json
 import logging
+import math
+import pdb
+import pickle
 import secrets
 import struct
-import pickle
-import pdb
-from pprint import pprint
-from colorline import cprint
+import time
 from functools import partial
+from pprint import pprint
+
+from colorline import cprint
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
 from Crypto.Util import Padding
