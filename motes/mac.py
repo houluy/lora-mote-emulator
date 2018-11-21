@@ -2,26 +2,16 @@ import base64
 import json
 import logging
 import math
-import pdb
 import pickle
 import secrets
 import struct
 import time
 import random
-from functools import partial
-from pprint import pprint
 
-from colorline import cprint
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
-from Crypto.Util import Padding
-
-nprint = partial(cprint, color='g', bcolor='k')
-eprint = partial(cprint, color='c', bcolor='r')
-
 
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
-
 
 logger = logging.getLogger('main')
 
@@ -226,6 +216,13 @@ class Mote:
             'FOpts',
         ]
 
+    @staticmethod
+    def bytes_xor(b1, b2):
+        result = bytearray()
+        for b1, b2 in zip(b1, b2):
+            result.append(b1 ^ b2)
+        return bytes(result)
+
     @classmethod
     def load(cls, file):
         with open(file, 'rb') as f:
@@ -241,117 +238,51 @@ class Mote:
         join_data = self.form_join()
         gateway.push(join_data, transmitter, self)
 
-    def app(self, gateway, transmitter):
-        app_data = self.form_app()
+    def app(self, gateway, transmitter, msg, fopts):
+        app_data = self.form_app(msg, fopts)
         gateway.push(app_data, transmitter, self)
 
-DevAddr = macpayload[3::-1]
-            FCtrl = macpayload[4:5]
-            FOptsLen = (ord(FCtrl) & 0b1111)
-            FCnt = macpayload[5:7]
-            FCnt += b'\x00\x00'
-            FCnt = bytes(reversed(FCnt))
-            FOptsOffset = 7 + FOptsLen
-            FOpts = macpayload[7:FOptsOffset]
-            FHDR = macpayload[:7+FOptsLen]
-            msg = macpayload[FOptsOffset:]
-            FPort = msg[:1]
-            FRMPayload = msg[1:-4]
-            MIC = macpayload[-4:]
-            mic_fields = {
-                'MHDR': MHDR.hex(),
-                'FHDR': FHDR.hex(),
-                'FPort': FPort.hex(),
-                'FRMPayload': FRMPayload.hex(),
-                'DevAddr': DevAddr.hex(),
-                'FCnt': FCnt.hex(),
-                'direction': '01',
-            }
-            nprint('---Original fields---')
-            pprint(mic_fields)
-            caled_mic = Mote.cal_mic(key=NwkSKey, **mic_fields)
-            if caled_mic == MIC.hex():
-                nprint('---MIC matched---')
-                # Decrypt
-                decrypt_fields = {
-                    'DevAddr': DevAddr.hex(),
-                    'FCnt': FCnt.hex(),
-                    'direction': '01',
-                }
-                if FPort == b'\x00':
-                    key = NwkSKey
-                else:
-                    key = AppSKey
-                FRMPayload = Mote.encrypt(
-                    key=key,
-                    payload=FRMPayload,
-                    **decrypt_fields
-                )
-                log_json = {
-                    'MHDR': MHDR.hex(),
-                    'DevAddr': DevAddr.hex(),
-                    'FCtrl': FCtrl.hex(),
-                    'FOptsLen': FOptsLen,
-                    'FCnt': FCnt.hex(),
-                    'FOpts': FOpts.hex(),
-                    'FPort': FPort.hex(),
-                    'FRMPayload': FRMPayload.hex(),
-                    'MIC': MIC.hex(),
-                }
-                return log_json
-            else:
-                raise ValueError('Dlk MIC MISMATCH!!!')
-
     def form_fctrl(self, foptslen):
-        FCtrl = (ADR << 7) + (ADRACKReq << 6) + (ACK << 5) + (ClassB << 4)
-        FCtrl += (FOptsLen & 0b1111)
-    else:
-        FCtrl = (ADR << 7) + (0 << 6) + (ACK << 5) + (FPending << 4)
-        FCtrl += (FOptsLen & 0b1111)
-        return Mote.int2hexstring(FCtrl)
+        return (0x2f & (foptslen | 0xF0)).to_bytes(1, 'big')
 
-    def form_fhdr(self, fopts=b''):
+    def form_fhdr(self, fopts):
         foptslen = len(fopts)
+        if foptslen:
+            fopts = self.encrypt(
+                self.nwkskey,
+                fopts,
+                direction=0,
+                devaddr=self.devaddr,
+                fcnt=self.fcnt,
+            )
         self.fhdr_f += '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen)
         return struct.pack(self.fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
 
     @staticmethod
-    def _base_block(**kwargs):
-        kwargs['DevAddr'] = Mote.str_rev(kwargs.get('DevAddr'))
-        kwargs['FCnt'] = Mote.str_rev(kwargs.get('FCnt'))
-        return '00000000{direction}{DevAddr}{FCnt}00'.format(**kwargs)
-
-    @staticmethod
-    def _B0(**kwargs):
-        base_block = Mote._base_block(**kwargs)
-        return '49{base_block}{msg_length}'.format(
-            base_block=base_block,
-            msg_length=kwargs.get('msg_length')
-        )
-
-    @staticmethod
-    def _A(**kwargs):
-        base_block = Mote._base_block(**kwargs)
-        return '01{base_block}{i}'.format(
-            base_block=base_block,
-            i=kwargs.get('i')
-        )
-
-    @staticmethod
-    def cal_mic(mhdr, key, typ='normal', **kwargs):
-        if typ == 'normal':
+    def cal_mic(mhdr, key, typ='app', **kwargs):
+        if typ == 'app':
+            app_f = '<cHHB4sIBB'
             msg = b''.join([
                 mhdr,
                 kwargs.get('fhdr'),
-                kwargs.get('fport'),
-                kwargs.get('msg'),
+                kwargs.get('fport').to_bytes(1, 'big'),
+                kwargs.get('frmpld'),
             ])
             msglen = len(msg)
-            #msg_length = '{:0>2x}'.format(len(msg_bytes) % 0xFF)
-            B0 = Mote._B0(msglen=msglen, **kwargs)
-            obj_msg = B0 + msg
-            obj_msg = bytearray.fromhex(obj_msg)
+            conffcnt = 0
+            B0 = struct.pack(
+                app_f,
+                b'\x49',
+                conffcnt,
+                0,
+                kwargs.get('direction'),
+                kwargs.get('devaddr'),
+                kwargs.get('fcnt'),
+                0,
+                msglen
+            )
+            msg = B0 + msg
         elif typ == 'join':
             msg = b''.join([
                 mhdr,
@@ -382,19 +313,27 @@ DevAddr = macpayload[3::-1]
         return cryptor.encrypt(macpayload)
 
     @staticmethod
-    def encrypt(key, payload, **kwargs):
-        pld_len = len(payload)
-        k = math.ceil(pld_len / 16)
-        payload += b'\x00'*(16*k - pld_len)
+    def encrypt(key, payload, direction=0, **kwargs):
+        pldlen = len(payload)
+        k = math.ceil(pldlen / 16)
+        payload += b'\x00'*(16*k - pldlen)
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
+        a_f = '<c4sB4sIBB'
         for i in range(1, k + 1):
-            kwargs['i'] = '{:0>2x}'.format(i)
-            _A_each = Mote._A(**kwargs)
-            Ai = bytearray.fromhex(_A_each)
+            Ai = struct.pack(
+                a_f,
+                b'\x01',
+                b'\x00'*4,
+                direction,
+                kwargs.get('devaddr'),
+                kwargs.get('fcnt'),
+                0,
+                i
+            )
             Si = cryptor.encrypt(Ai)
             S += Si
-        return b''.join(Mote.bytes_xor(S, payload))[:pld_len]
+        return Mote.bytes_xor(S, payload)[:pldlen]
 
     def gen_keys(self):
         cryptor = AES.new(self.appkey, AES.MODE_ECB)
@@ -463,61 +402,40 @@ DevAddr = macpayload[3::-1]
         else:
             raise ValueError('MIC mismatch')
 
-    def form_app(self, msg, fopts):
+    def form_app(self, frmpld, fopts=b''):
         mhdr = b'\x80'
         fhdr = self.form_fhdr(fopts)
         fhdrlen = len(fhdr)
         fport = random.randint(2, 255)
-        msglen = len(msg)
-        app_f = '<s{fhdrlen}sB{msglen}s4s'.format(
+        frmpldlen = len(frmpld)
+        app_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
-            msglen=msglen,
+            frmpldlen=frmpldlen,
+        )
+        frmpld = self.encrypt(
+            self.appskey,
+            frmpld,
+            devaddr=self.devaddr,
+            fcnt=self.fcnt,
         )
         mic = self.cal_mic(
             mhdr,
             self.nwkskey,
+            direction=0,
+            devaddr=self.devaddr,
+            fcnt=self.fcnt,
             fhdr=fhdr,
             fport=fport,
-            msg=msg,
+            frmpld=frmpld,
         )
         return struct.pack(
+            app_f,
             mhdr,
             fhdr,
             fport,
-            msg,
+            frmpld,
             mic,
         )
-        if FPort == '00':
-            enc_key = NwkSKey
-            FRMPayload = bytes.fromhex(FRMPayload)
-        else:
-            enc_key = AppSKey
-        if FRMPayload:
-            if isinstance(FRMPayload, str):
-                FRMPayload = FRMPayload.encode()
-            FRMPayload = Mote.encrypt(
-                key=enc_key,
-                payload=FRMPayload,
-                **kwargs
-            ).hex()
-        else:
-            FRMPayload = ''
-        if not kwargs.get('FHDR'):
-            FHDR = Mote.form_FHDR(
-                **{k: kwargs.get(k) for k in self.FHDR_list}
-            )
-        else:
-            FHDR = kwargs.get('FHDR')
-        kwargs['FRMPayload'] = FRMPayload
-        kwargs['FHDR'] = FHDR
-        MIC = Mote.cal_mic(key=NwkSKey, **kwargs)
-        return ''.join([
-            kwargs.get('MHDR'),
-            kwargs.get('FHDR'),
-            kwargs.get('FPort'),
-            FRMPayload,
-            MIC
-        ])
 
     def parse(self):
         pass

@@ -1,8 +1,5 @@
 import argparse
 import json
-import shutil
-import struct
-import sys
 import logging
 import socket
 
@@ -10,7 +7,6 @@ import yaml
 
 from motes import mac, network
 
-nprint = mac.nprint
 logger = logging.getLogger('main')
 
 parser = argparse.ArgumentParser(
@@ -22,6 +18,14 @@ parser.add_argument(
     help='Data type of uplink',
     choices=['join', 'app', 'pull'],
     default='join'
+)
+
+parser.add_argument(
+    '-m', help='Payload', dest='msg'
+)
+
+parser.add_argument(
+    '-f', help='MAC Command in FOpts', dest='fopts'
 )
 
 args = parser.parse_args()
@@ -57,17 +61,20 @@ try:
     elif args.type == 'join':
         mote.join(gateway, udp_client)
     elif args.type == 'app':
-        mote.app(gateway, udp_client)
+        fopts = args.fopts if args.fopts else b''
+        mote.app(
+            gateway, udp_client, args.msg.encode(), fopts
+        )
     else:
         raise NotImplementedError
 except socket.timeout as e:
     logger.error('Socket Timeout, remote server is unreachable')
-except struct.error as e:
-    logger.error('struct unpacking ERROR {}'.format(e))
-except Exception as e:
-    logger.critical('Unhandled bug')
-    print(e)
-    raise e
+#except struct.error as e:
+#    logger.error('struct unpacking ERROR {}'.format(e))
+#except Exception as e:
+#    logger.critical('Unhandled bug')
+#    print(e)
+#    raise e
 
 # def uplink(udp_client, typ='app'):
 #     while True:
