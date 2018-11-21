@@ -61,7 +61,7 @@ try:
     elif args.type == 'join':
         mote.join(gateway, udp_client)
     elif args.type == 'app':
-        fopts = args.fopts if args.fopts else b''
+        fopts = bytes.fromhex(args.fopts) if args.fopts else b''
         mote.app(
             gateway, udp_client, args.msg.encode(), fopts
         )

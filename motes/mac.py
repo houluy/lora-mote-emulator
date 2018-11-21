@@ -175,26 +175,18 @@ class GatewayOp:
     def parse_txpk(self, txpk, mote):
         data = memoryview(base64.b64decode(txpk.get('data')))
         mhdr = data[:1]
-        encrypted_data = data[1:]
-        macpayloadmic = mote.joinacpt_decrypt(encrypted_data)
-        msglen = len(data)
-        pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
-        pullresp_f = '<{}s4s'.format(pldlen)
-        macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
         if (int.from_bytes(mhdr, 'big') >> 5) == 1:
+            encrypted_data = data[1:]
+            macpayloadmic = mote.joinacpt_decrypt(encrypted_data)
+            msglen = len(data)
+            pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
+            pullresp_f = '<{}s4s'.format(pldlen)
+            macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
             mote.parse_joinacpt(mhdr, macpayload, mic)
         else:  # PULL RESP for app data
+            macpayload = data[1:-4]
+            mic = data[-4:]
             mote.parse_macpld(mhdr, macpayload, mic)
-
-    def parse_dlk(self, downlink):
-        if downlink[3] in (1, 4):
-            return None
-        else:
-            txpk = downlink[4:]
-            nprint('---TXPK---')
-            print(txpk)
-            txpk_json = json.loads(txpk.decode('ascii'))
-            return txpk_json.get('txpk')
 
 
 class Mote:
@@ -248,13 +240,15 @@ class Mote:
     def form_fhdr(self, fopts):
         foptslen = len(fopts)
         if foptslen:
-            fopts = self.encrypt(
-                self.nwkskey,
-                fopts,
-                direction=0,
-                devaddr=self.devaddr,
-                fcnt=self.fcnt,
-            )
+            fopts = fopts
+            # fOpts encryption is only required in LoRaWAN 1.1.
+            # fopts = self.encrypt(
+            #     self.nwkskey,
+            #     fopts,
+            #     direction=0,
+            #     devaddr=self.devaddr,
+            #     fcnt=self.fcnt,
+            # )
         self.fhdr_f += '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen)
         return struct.pack(self.fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
@@ -401,6 +395,39 @@ class Mote:
             self.save()
         else:
             raise ValueError('MIC mismatch')
+
+    def parse_macpld(self, mhdr, macpayload, mic):
+        macpldmv = memoryview(macpayload)
+        beforefopts_f = '<4sBH'
+        devaddr, fctrl, fcnt = struct.unpack(
+            beforefopts_f,
+            macpldmv[:7]
+        )
+        foptslen = fctrl & 0b1111
+        fhdrlen = 7 + foptslen
+        fopts = macpldmv[7:fhdrlen].tobytes()
+        fport = macpldmv[fhdrlen]
+        frmpld = macpldmv[fhdrlen + 1:].tobytes()
+        frmpld = self.encrypt(
+            self.appskey,
+            frmpld,
+            direction=1,
+            devaddr=devaddr,
+            fcnt=fcnt
+        )
+        logger.info(
+            ('Downlink data (MIC verified) - \n'
+                'DevAddr: {}, '
+                'FCnt: {}, '
+                'FOpts: {}, '
+                'FPort: {}, '
+                'Payload: {}').format(
+                    devaddr.hex(),
+                    fcnt,
+                    fopts.hex(),
+                    fport,
+                    frmpld.hex(),
+                ))
 
     def form_app(self, frmpld, fopts=b''):
         mhdr = b'\x80'
