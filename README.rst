@@ -36,8 +36,6 @@ Installtion
   
 Here, if there is not Python 3.6 in your system, a warning will occur, and no package will be installed. It is perfect to install Python 3.6 from `source <https://www.python.org/downloads/release/python-362/>`_. Otherwise, remove the ``Pipfile.lock`` and redo the above command.
 
-- Copy a local config file and modify the src and dest address.
-- Modify device basic infomation in ``device_back.json``.
 - Run the emulator to see the help::
 
     pipenv run python main.py -h
@@ -46,3 +44,17 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
 
     pipenv shell
     python main.py -h
+
+Tutorial
+===================
+
+- Copy a local config file and device info file from the template, then modify the src and dest address.
+- Modify device infomation in ``device.json`` you just copied.
+- Currently, three kind of message is supported: pull data, join and confirmed data up (with or without FOpts)
+
+::  
+    python main.py pull
+    python main.py join
+    python main.py app -m (your uplink message, will be encoded by UTF-8) -f (your MACCommand in FOpts fields)
+If this is your first-time running, run ``pull`` and ``join`` in the very begining to register the port of gateway and join the device. The device info will be saved automatically in ``models/device.pkl`` using ``pickle``, and loaded next time.
+

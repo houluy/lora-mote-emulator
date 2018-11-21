@@ -3,10 +3,10 @@ import json
 import logging
 import math
 import pickle
+import random
 import secrets
 import struct
 import time
-import random
 
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
@@ -201,12 +201,6 @@ class Mote:
         self.deveui = deveui[::-1]
         self.appkey = appkey
         self.conffile = conffile
-        self.FHDR_list = [
-            'DevAddr',
-            'FCtrl',
-            'FCnt',
-            'FOpts',
-        ]
 
     @staticmethod
     def bytes_xor(b1, b2):
@@ -455,6 +449,8 @@ class Mote:
             fport=fport,
             frmpld=frmpld,
         )
+        self.fcnt += 1
+        self.save()
         return struct.pack(
             app_f,
             mhdr,
@@ -463,6 +459,3 @@ class Mote:
             frmpld,
             mic,
         )
-
-    def parse(self):
-        pass
