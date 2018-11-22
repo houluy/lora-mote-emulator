@@ -243,9 +243,9 @@ class Mote:
             #     devaddr=self.devaddr,
             #     fcnt=self.fcnt,
             # )
-        self.fhdr_f += '{}s'.format(foptslen)
+        fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen)
-        return struct.pack(self.fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
+        return struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
 
     @staticmethod
     def cal_mic(mhdr, key, typ='app', **kwargs):
