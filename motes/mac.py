@@ -7,6 +7,7 @@ import random
 import secrets
 import struct
 import time
+import pdb
 
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
@@ -14,6 +15,10 @@ from Crypto.Hash import CMAC
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
 logger = logging.getLogger('main')
+
+
+class MICError(ValueError):
+    pass
 
 
 class GatewayOp:
@@ -225,8 +230,12 @@ class Mote:
         gateway.push(join_data, transmitter, self)
 
     def app(self, gateway, transmitter, msg, fopts):
-        app_data = self.form_app(msg, fopts)
+        app_data = self.form_app(msg, self.app_preproc, fopts)
         gateway.push(app_data, transmitter, self)
+
+    def cmd(self, gateway, transmitter, cmd):
+        cmd_data = self.form_app(cmd, self.cmd_preproc, b'')
+        gateway.push(cmd_data, transmitter, self)
 
     def form_fctrl(self, foptslen):
         return (0x2f & (foptslen | 0xF0)).to_bytes(1, 'big')
@@ -250,7 +259,7 @@ class Mote:
     @staticmethod
     def cal_mic(mhdr, key, typ='app', **kwargs):
         if typ == 'app':
-            app_f = '<cHHB4sIBB'
+            B0_f = '<cHHB4sIBB'
             msg = b''.join([
                 mhdr,
                 kwargs.get('fhdr'),
@@ -260,7 +269,7 @@ class Mote:
             msglen = len(msg)
             conffcnt = 0
             B0 = struct.pack(
-                app_f,
+                B0_f,
                 b'\x49',
                 conffcnt,
                 0,
@@ -390,55 +399,87 @@ class Mote:
         else:
             raise ValueError('MIC mismatch')
 
-    def parse_macpld(self, mhdr, macpayload, mic):
-        macpldmv = memoryview(macpayload)
+    def parse_macpld(self, mhdr, macpldmv, mic):
+        prefhdr = macpldmv[:7]
         beforefopts_f = '<4sBH'
         devaddr, fctrl, fcnt = struct.unpack(
             beforefopts_f,
-            macpldmv[:7]
+            prefhdr
         )
         foptslen = fctrl & 0b1111
         fhdrlen = 7 + foptslen
-        fopts = macpldmv[7:fhdrlen].tobytes()
+        fhdr = macpldmv[:fhdrlen]
+        fopts = fhdr[7:].tobytes()
         fport = macpldmv[fhdrlen]
         frmpld = macpldmv[fhdrlen + 1:].tobytes()
+        if fport == 0:
+            key = self.nwkskey
+        else:
+            key = self.appskey
         frmpld = self.encrypt(
-            self.appskey,
+            key,
             frmpld,
             direction=1,
             devaddr=devaddr,
             fcnt=fcnt
         )
-        logger.info(
-            ('Downlink data (MIC verified) - \n'
-                'DevAddr: {}, '
-                'FCnt: {}, '
-                'FOpts: {}, '
-                'FPort: {}, '
-                'Payload: {}').format(
-                    devaddr.hex(),
-                    fcnt,
-                    fopts.hex(),
-                    fport,
-                    frmpld.hex(),
-                ))
-
-    def form_app(self, frmpld, fopts=b''):
-        mhdr = b'\x80'
-        fhdr = self.form_fhdr(fopts)
-        fhdrlen = len(fhdr)
-        fport = random.randint(2, 255)
-        frmpldlen = len(frmpld)
-        app_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
-            fhdrlen=fhdrlen,
-            frmpldlen=frmpldlen,
+        vmic = self.cal_mic(
+            mhdr,
+            self.nwkskey,
+            direction=1,
+            devaddr=self.devaddr,
+            fcnt=fcnt,
+            fhdr=fhdr,
+            fport=fport,
+            frmpld=frmpld,
         )
+        if (vmic == mic):
+            logger.info(
+                ('Downlink data (MIC verified) - \n'
+                    'DevAddr: {}, '
+                    'FCnt: {}, '
+                    'FOpts: {}, '
+                    'FPort: {}, '
+                    'Payload: {}').format(
+                        devaddr.hex(),
+                        fcnt,
+                        fopts.hex(),
+                        fport,
+                        frmpld.hex(),
+                    ))
+        else:
+            raise MICError()
+
+    def app_preproc(self, frmpld):
+        fport = random.randint(2, 255)
         frmpld = self.encrypt(
             self.appskey,
             frmpld,
             devaddr=self.devaddr,
             fcnt=self.fcnt,
         )
+        return fport, frmpld
+
+    def cmd_preproc(self, cmd):
+        fport = 0
+        frmpld = self.encrypt(
+            self.nwkskey,
+            cmd,
+            devaddr=self.devaddr,
+            fcnt=self.fcnt,
+        )
+        return fport, frmpld
+
+    def form_app(self, frmpld, preproc, fopts=b''):
+        mhdr = b'\x80'
+        fhdr = self.form_fhdr(fopts)
+        fhdrlen = len(fhdr)
+        frmpldlen = len(frmpld)
+        app_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
+            fhdrlen=fhdrlen,
+            frmpldlen=frmpldlen,
+        )
+        fport, frmpld = preproc(frmpld)
         mic = self.cal_mic(
             mhdr,
             self.nwkskey,
