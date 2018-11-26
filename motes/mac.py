@@ -88,6 +88,17 @@ class GatewayOp:
     @property
     def pull_data(self):
         token = secrets.token_bytes(self.token_length)
+        logger.info(
+            ('PULL DATA -\nVersion: {}, '
+                'Token: {}, '
+                'Identifier: {}, '
+                'GatewayEUI: {}').format(
+                    self.version.hex(),
+                    token.hex(),
+                    self.pull_id.hex(),
+                    self.gateway_id.hex()
+                ))
+
         return b''.join([
             self.version,
             token,
@@ -97,26 +108,38 @@ class GatewayOp:
 
     def pull(self, transmitter):
         transmitter.send(self.pull_data)
-        while True:
-            res = transmitter.recv()
-            self.parse_pullack(res[0])
-            return True
+        res = transmitter.recv()
+        self.parse_pullack(res[0])
 
     def parse_pullack(self, pullack):
         pullack = memoryview(pullack)
         version, token, identifier, gateway_eui =\
             struct.unpack(self.pullack_f, pullack)
         logger.info(
-            ('PULL ACK -\n Version: {}, '
+            ('PULL ACK -\nVersion: {}, '
                 'Token: {}, '
-                'Identifier:{}, '
+                'Identifier: {}, '
                 'GatewayEUI: {}').format(
-                version.hex(), token.hex(), identifier.hex(),
-                gateway_eui.hex()))
+                    version.hex(),
+                    token.hex(),
+                    identifier.hex(),
+                    gateway_eui.hex()
+                ))
 
     def push_data(self, data):
         json_obj = self.form_push_data(data=data)
         token = secrets.token_bytes(self.token_length)
+        logger.info(
+            ('PUSH DATA -\nVerson: {}, '
+                'Token: {}, '
+                'Identifier: {}, '
+                'GatewayEUI: {}').format(
+                    self.version.hex(),
+                    token.hex(),
+                    self.push_id.hex(),
+                    self.gateway_id.hex(),
+                ))
+
         return b''.join([
             self.version,
             token,
@@ -127,12 +150,10 @@ class GatewayOp:
 
     def push(self, data, transmitter, mote):
         transmitter.send(self.push_data(data))
-        while True:
-            pushack = transmitter.recv()
-            self.parse_pushack(pushack[0])
-            pullresp = transmitter.recv()
-            self.parse_pullresp(pullresp[0], mote)
-            return True
+        pushack = transmitter.recv()
+        self.parse_pushack(pushack[0])
+        pullresp = transmitter.recv()
+        self.parse_pullresp(pullresp[0], mote)
 
     def parse_pushack(self, pushack):
         pushack = memoryview(pushack)
@@ -162,7 +183,7 @@ class GatewayOp:
             ('PULL RESP - \n'
                 'Version: {}, '
                 'Token: {}, '
-                'Identifier: {},\n').format(
+                'Identifier: {} --').format(
                     version.hex(),
                     token.hex(),
                     identifier.hex(),
@@ -352,6 +373,18 @@ class Mote:
             devnonce=self.devnonce,
             mhdr=mhdr
         )
+        logger.info(
+            ('Join Request - \n'
+                'AppEUI: {}, '
+                'DevEUI: {}, '
+                'DevNonce: {}, '
+                'MIC: {} --').format(
+                    self.appeui.hex(),
+                    self.deveui.hex(),
+                    self.devnonce.hex(),
+                    mic.hex(),
+                ))
+
         return struct.pack(
             self.joinreq_f,
             mhdr,
@@ -386,7 +419,7 @@ class Mote:
                     'NetID: {}, '
                     'DevAddr: {}, '
                     'DLSettings: {}, '
-                    'RxDelay: {}\n').format(
+                    'RxDelay: {}').format(
                         self.appnonce.hex(),
                         self.netid.hex(),
                         self.devaddr.hex(),
@@ -471,6 +504,7 @@ class Mote:
         return fport, frmpld
 
     def form_app(self, frmpld, preproc, fopts=b''):
+        '@preproc: different process for frmpld and fport'
         mhdr = b'\x80'
         fhdr = self.form_fhdr(fopts)
         fhdrlen = len(fhdr)
@@ -492,6 +526,18 @@ class Mote:
         )
         self.fcnt += 1
         self.save()
+        logger.info(
+            ('Application Data -\n'
+                'FHDR: {}, '
+                'FPort: {}, '
+                'FRMPayload (after encryption): {}, '
+                'MIC: {} --').format(
+                    fhdr.hex(),
+                    fport,
+                    frmpld,
+                    mic.hex()
+                ))
+
         return struct.pack(
             app_f,
             mhdr,
