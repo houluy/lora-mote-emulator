@@ -62,3 +62,8 @@ Tutorial
 
 If this is your first-time running, run ``pull`` and ``join`` in the very begining to register the port of gateway and join the device. The device info will be saved automatically in ``models/device.pkl`` using ``pickle``, and loaded next time.
 
+Here is the example:
+
+::  
+    python main.py app -m helloworld -f 0302
+    python main.py mac -c 0302
