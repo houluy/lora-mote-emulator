@@ -65,5 +65,6 @@ If this is your first-time running, run ``pull`` and ``join`` in the very begini
 Here is the example:
 
 ::  
+
     python main.py app -m helloworld -f 0302
     python main.py mac -c 0302
