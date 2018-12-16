@@ -68,3 +68,7 @@ Here is the example:
 
     python main.py app -m helloworld -f 0302
     python main.py mac -c 0302
+
+Contribution
+===================
+This repo is hosted on https://github.com/houluy/lora-motes-emulator and under MIT license, any contribution or suggestion is welcome. Just open an issue or send a pull request.
