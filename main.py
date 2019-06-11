@@ -1,4 +1,3 @@
-import argparse
 import json
 import logging
 import socket
@@ -7,31 +6,9 @@ import pdb
 import yaml
 
 from motes import mac, network
+from motes.cli import parser
 
 logger = logging.getLogger('main')
-
-parser = argparse.ArgumentParser(
-    description='Tool for test on LoRaWAN server'
-)
-
-parser.add_argument(
-    'type',
-    help='Data type of uplink',
-    choices=['join', 'app', 'pull', 'cmd'],
-    default='join'
-)
-
-parser.add_argument(
-    '-m', help='Payload', dest='msg'
-)
-
-parser.add_argument(
-    '-f', help='MAC Command in FOpts field', dest='fopts'
-)
-
-parser.add_argument(
-    '-c', help='MAC Command in FRMPayload field', dest='cmd'
-)
 
 args = parser.parse_args()
 
@@ -56,7 +33,7 @@ gateway_id = device_conf.get('Gateway').get('GatewayEUI')
 try:
     mote = mac.Mote.load(device_file)
 except FileNotFoundError:
-    mote = mac.Mote(appeui, deveui, appkey, device_file)
+    mote = mac.Mote(appeui, deveui, appkey, device_file, version=args.version)
 gateway = mac.GatewayOp(gateway_id)
 udp_client = network.UDPClient(target, address=local)
 

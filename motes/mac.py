@@ -222,11 +222,12 @@ class Mote:
     joinacpt_f = '<3s3s4sss'
     fhdr_f = '<4ssH'
 
-    def __init__(self, appeui, deveui, appkey, conffile):
+    def __init__(self, appeui, deveui, appkey, conffile, version='1.0.2'):
         self.appeui = appeui[::-1]
         self.deveui = deveui[::-1]
         self.appkey = appkey
         self.conffile = conffile
+        self.version = version
 
     @staticmethod
     def bytes_xor(b1, b2):
@@ -546,3 +547,7 @@ class Mote:
             frmpld,
             mic,
         )
+
+    def rejoin(self, typ=0):
+#TODO
+        pass
