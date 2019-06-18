@@ -548,6 +548,15 @@ class Mote:
             mic,
         )
 
-    def rejoin(self, typ=0):
-#TODO
-        pass
+    def form_rejoin(self, typ=0):
+        '''
+        rejoin request(typ 0 or 2):
+        |1 byte      | 3 bytes | 8 bytes | 2 bytes |
+        |rejoin type | NetID   |  DevEUI | RJcount0|
+        rejoin request(typ 1):
+        |1 byte      | 8 bytes | 8 bytes | 2 bytes |
+        |rejoin type | JoinEUI |  DevEUI | RJcount1|
+        @typ: type of rejoin request, 0, 1 or 2.
+        '''
+        rejoin_f = f'<s'
+        
