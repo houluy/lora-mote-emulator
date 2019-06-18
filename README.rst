@@ -1,11 +1,15 @@
 LoRa Motes Emulator
 ===================
 
+|version|
+|python| 
+|license|
+
 This is a useful tool to test LoRa server.
 
 To emulate end devices (a.k.a. Motes in |LoRaWAN(TM)| protocol)
 
-*Support* |LoRaWAN(TM)| *1.0.2 protocol*
+*Support* |LoRaWAN(TM)| *1.0.2 protocol* (1.1 under development)
 
 **Using Gateways from** |Semtech(TM)|
 
@@ -14,13 +18,13 @@ To emulate end devices (a.k.a. Motes in |LoRaWAN(TM)| protocol)
 
 
 System Requirements
-======================
+-------------------
 
 - Ubuntu
-- Python(3.6, mandatory)
+- Python(>=3.6, mandatory)
 
 Installtion
-===================
+-------------------
 
 - Use ``pip`` to install ``pipenv``::
 
@@ -46,7 +50,7 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
     python main.py -h
 
 Tutorial
-===================
+--------
 
 - Copy a local config file and device info file from the template, then modify the src and dest address.
 - Modify device infomation in ``device.json`` you just copied.
@@ -70,5 +74,11 @@ Here is the example:
     python main.py mac -c 0302
 
 Contribution
-===================
+------------
+
 This repo is hosted on https://github.com/houluy/lora-motes-emulator and under MIT license, any contribution or suggestion is welcome. Just open an issue or send a pull request.
+
+
+.. |version| image:: https://img.shields.io/badge/LoRaWAN-1.1-orange.svg?style=plastic
+.. |python| image:: https://img.shields.io/badge/Python-3.6%2C3.7-blue.svg?style=plastic&logo=python
+.. |license| image:: https://img.shields.io/badge/License-MIT-red.svg?style=plastic
