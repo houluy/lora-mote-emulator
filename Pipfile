@@ -1,21 +1,15 @@
 [[source]]
-
 name = "pypi"
 verify_ssl = true
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
-
 [packages]
-
 pyyaml = "*"
 colorline = "*"
 pycryptodome = "*"
 
-
 [requires]
-
 python_version = "3.6"
 
-
 [dev-packages]
-
+sphinx = "*"

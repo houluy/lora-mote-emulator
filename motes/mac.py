@@ -16,6 +16,10 @@ GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
 logger = logging.getLogger('main')
 
+MHDR_LEN = 1
+JOINACPT_CFLIST_OFFSET = 12
+AES_BLOCK = 16
+
 
 class MICError(ValueError):
     pass
@@ -200,9 +204,9 @@ class GatewayOp:
 
     def parse_txpk(self, txpk, mote):
         data = memoryview(base64.b64decode(txpk.get('data')))
-        mhdr = data[:1]
+        mhdr = data[:MHDR_LEN]
         if (int.from_bytes(mhdr, 'big') >> 5) == 1:
-            encrypted_data = data[1:]
+            encrypted_data = data[MHDR_LEN:]
             macpayloadmic = mote.joinacpt_decrypt(encrypted_data)
             msglen = len(data)
             pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
@@ -210,7 +214,7 @@ class GatewayOp:
             macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
             mote.parse_joinacpt(mhdr, macpayload, mic)
         else:  # PULL RESP for app data
-            macpayload = data[1:-4]
+            macpayload = data[MHDR_LEN:-4]
             mic = data[-4:]
             mote.parse_macpld(mhdr, macpayload, mic)
 
@@ -221,13 +225,89 @@ class Mote:
     joinreq_f = '<s8s8s2s4s'
     joinacpt_f = '<3s3s4sss'
     fhdr_f = '<4ssH'
+    mic_msg_tpl = {
+        'join': [
+            'mhdr',
+            'joineui',
+            'deveui',
+            'devnonce',
+        ],
+        'acpt': [
+            'joinreqtyp',
+            'joineui',
+            'devnonce',
+            'mhdr',
+            'joinnonce',
+            'netid',
+            'devaddr',
+            'dlsettings',
+            'rxdelay',
+            'cflist'
+        ],
+    }
 
-    def __init__(self, appeui, deveui, appkey, conffile, version='1.0.2'):
-        self.appeui = appeui[::-1]
+    def __init__(self, joineui, deveui, appkey, nwkkey, conffile, version='1.0.2'):
+        self.joineui = joineui[::-1]
         self.deveui = deveui[::-1]
-        self.appkey = appkey
+        self.appkey, self.nwkkey = appkey, nwkkey
         self.conffile = conffile
         self.version = version
+
+        self._initialization_by_ver()
+
+    def _initialize(self, optneg):
+        if optneg:
+            # Server supports LoRaWAN 1.1 and later
+            # Generate FNwkSIntKey, SNwkSIntKey, NwkSEncKey and AppSKey
+            nwkskey_prefix = b''.join([
+                self.joinnonce,
+                self.joineui,
+                self.devnonce,
+            ])
+            fnwksint_msg, snwksint_msg, nwksenc_msg = [
+                (prefix + nwkskey_prefix).ljust(AES_BLOCK, b'\x00')
+                for prefix in (b'\x01', b'\x03', b'\x04')
+            ]
+            self.fnwksintkey, self.snwksintkey, self.nwksenckey = self.gen_keys(
+                self.nwkkey, (fnwksint_msg, snwksint_msg, nwksenc_msg)
+            )
+            appsmsg = b''.join([
+                b'\x02',
+                self.joinnonce,
+                self.joineui,
+                self.devnonce,
+            ]).ljust(AES_BLOCK, b'\x00')
+            self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
+        else:
+            # Server only supports LoRaWAN 1.0
+            sesskey_prefix = b''.join([
+                self.joinnonce,
+                self.netid,
+                self.devnonce,
+            ])
+            apps_msg, fnwksint_msg = [
+                (prefix + sesskey_prefix).ljust(AES_BLOCK, b'\x00')
+                for prefix in (b'\x02', b'\x01')
+            ]
+            self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
+            self.snwksintkey = self.nwksenckey = self.fnwksintkey
+        self.fcnt = 0
+        self.save()
+
+    def _initialization_by_ver(self):
+        if self.version == '1.0.2':
+            self.join_mic_key = self.nwkkey
+            self.joinacpt_dec_key = self.nwkkey
+        elif self.version == '1.1':
+            self.join_mic_key = self.nwkkey
+            self.joinacpt_dec_key = self.nwkkey
+            # Generate JS Int & Enc keys
+            # 0x06 \ 0x05 | DevEUI | pad 
+            jsintkeymsg, jsenckeymsg = [
+                (prefix + self.deveui).ljust(AES_BLOCK, b'\x00') 
+                for prefix in (b'\x06', b'\x05')
+            ]
+            self.jsintkey, self.jsenckey = self.gen_keys(self.nwkkey, (jsintkeymsg, jsenckeymsg))
 
     @staticmethod
     def bytes_xor(b1, b2):
@@ -237,10 +317,10 @@ class Mote:
         return bytes(result)
 
     @classmethod
-    def load(cls, file):
-        with open(file, 'rb') as f:
+    def load(cls, filename):
+        with open(filename, 'rb') as f:
             obj = pickle.load(f)
-        obj.conffile = file
+        obj.conffile = filename
         return obj
 
     def save(self):
@@ -278,12 +358,11 @@ class Mote:
         fctrl = self.form_fctrl(foptslen)
         return struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
 
-    @staticmethod
-    def cal_mic(mhdr, key, typ='app', **kwargs):
+    def cal_mic(self, key, typ='app', **kwargs):
         if typ == 'app':
             B0_f = '<cHHB4sIBB'
             msg = b''.join([
-                mhdr,
+                kwargs.get('mhdr'),
                 kwargs.get('fhdr'),
                 kwargs.get('fport').to_bytes(1, 'big'),
                 kwargs.get('frmpld'),
@@ -302,23 +381,14 @@ class Mote:
                 msglen
             )
             msg = B0 + msg
-        elif typ == 'join':
-            msg = b''.join([
-                mhdr,
-                kwargs.get('appeui'),
-                kwargs.get('deveui'),
-                kwargs.get('devnonce'),
-            ])
         else:
-            msg = b''.join([
-               mhdr,
-               kwargs.get('appnonce'),
-               kwargs.get('netid'),
-               kwargs.get('devaddr'),
-               kwargs.get('dlsettings'),
-               kwargs.get('rxdelay'),
-               kwargs.get('cflist'),
-            ])
+            msgname = self.mic_msg_tpl[typ]
+            def attr_by_name(attr):
+                try:
+                    return getattr(self, attr)
+                except AttributeError:
+                    return kwargs.get(attr)
+            msg = b''.join(map(attr_by_name, msgname))
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(msg)
         return cobj.digest()[:Mote.miclen]
@@ -328,7 +398,7 @@ class Mote:
         macpayload = bytes(macpayload) + b''.join([
             b'\x00' for _ in range(16 - macpayloadlen)
         ])
-        cryptor = AES.new(self.appkey, AES.MODE_ECB)
+        cryptor = AES.new(self.joinacpt_dec_key, AES.MODE_ECB)
         return cryptor.encrypt(macpayload)
 
     @staticmethod
@@ -354,24 +424,30 @@ class Mote:
             S += Si
         return Mote.bytes_xor(S, payload)[:pldlen]
 
-    def gen_keys(self):
-        cryptor = AES.new(self.appkey, AES.MODE_ECB)
+    def gen_keys(self, root, keymsgs: tuple, mode=AES.MODE_ECB):
+        cryptor = AES.new(root, mode)
+        return [cryptor.encrypt(msg) for msg in keymsgs]
+
+    def gen_sess_keys(self):
         pad = b'\x00\x00\x00\x00\x00\x00\x00'
-        nwkskeymsg = b'\01' + self.appnonce + self.netid + self.devnonce + pad
-        appskeymsg = b'\02' + self.appnonce + self.netid + self.devnonce + pad
-        nwkskey = cryptor.encrypt(nwkskeymsg)
-        appskey = cryptor.encrypt(appskeymsg)
-        return nwkskey, appskey
+        nwkskeymsg = b'\01' + self.joinnonce + self.netid + self.devnonce + pad
+        appskeymsg = b'\02' + self.joinnonce + self.netid + self.devnonce + pad
+        return self.gen_keys(self.appkey, (nwkskeymsg, appskeymsg))
 
     def form_join(self):
+        '''
+        @ joinreqtyp: 
+            0xFF: Join Request
+            0x00: Rejoin type 0
+            0x01: Rejoin type 1
+            0x02: Rejoin type 2
+        '''
+        self.joinreqtyp = b'\xFF'
         self.devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
         mhdr = b'\x00'
         mic = self.cal_mic(
-            key=self.appkey,
+            key=self.join_mic_key,
             typ='join',
-            appeui=self.appeui,
-            deveui=self.deveui,
-            devnonce=self.devnonce,
             mhdr=mhdr
         )
         logger.info(
@@ -380,7 +456,7 @@ class Mote:
                 'DevEUI: {}, '
                 'DevNonce: {}, '
                 'MIC: {} --').format(
-                    self.appeui.hex(),
+                    self.joineui.hex(),
                     self.deveui.hex(),
                     self.devnonce.hex(),
                     mic.hex(),
@@ -389,49 +465,56 @@ class Mote:
         return struct.pack(
             self.joinreq_f,
             mhdr,
-            self.appeui,
+            self.joineui,
             self.deveui,
             self.devnonce,
             mic
         )
 
     def parse_joinacpt(self, mhdr, joinacpt, mic):
-        self.cflist = joinacpt[12:] if joinacpt[12:] else b''
-        self.appnonce, self.netid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
+        self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
+        self.joinnonce, self.netid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
                 self.joinacpt_f,
-                joinacpt[:12]
+                joinacpt[:JOINACPT_CFLIST_OFFSET]
             )
-        self.cflist = self.cflist if self.cflist else b''
+        # Check OptNeg flag in DLSettings
+        optneg, _ = self.parse_dlsettings(self.dlsettings)
+        if optneg:
+            joinacpt_mic_key = self.jsintkey
+        else:
+            joinacpt_mic_key = self.nwkkey
         vmic = self.cal_mic(
-            mhdr,
-            key=self.appkey,
+            key=joinacpt_mic_key,
             typ='acpt',
-            appnonce=self.appnonce,
-            netid=self.netid,
-            devaddr=self.devaddr,
-            dlsettings=self.dlsettings,
-            rxdelay=self.rxdelay,
-            cflist=self.cflist,
+            mhdr=mhdr,
         )
         if (vmic == mic):
             logger.info(
                 ('Join Accept (MIC verified) -\n'
-                    'AppNonce: {}, '
-                    'NetID: {}, '
                     'DevAddr: {}, '
                     'DLSettings: {}, '
                     'RxDelay: {}').format(
-                        self.appnonce.hex(),
-                        self.netid.hex(),
                         self.devaddr.hex(),
                         self.dlsettings.hex(),
                         self.rxdelay.hex()
                     ))
-            self.nwkskey, self.appskey = self.gen_keys()
-            self.fcnt = 0
-            self.save()
+            self._initialize(optneg)
         else:
             raise ValueError('MIC mismatch')
+
+    def parse_dlsettings(self, dlsettings):
+        '''
+        DLSettings
+        ----------------------------------------
+        | OptNeg | RX1DRoffset | RX2 Data Rate |
+        ----------------------------------------
+        |   0    |    000      |     0000      |
+        ----------------------------------------
+        '''
+        optneg = dlsettings & 0x80
+        rx1droffset = dlsettings & 0x70
+        rx2datarate = dlsettings & 0x0F
+        return optneg, rx1droffset, rx2datarate
 
     def parse_macpld(self, mhdr, macpldmv, mic):
         prefhdr = macpldmv[:7]
@@ -558,5 +641,18 @@ class Mote:
         |rejoin type | JoinEUI |  DevEUI | RJcount1|
         @typ: type of rejoin request, 0, 1 or 2.
         '''
-        rejoin_f = f'<s'
-        
+        rejoin_f = '<s{}s8sh'
+        typ_field = {
+            0: (self.netid, self.rjcount0),
+            1: (self.joineui, self.rjcount1),
+            2: (self.netid, self.rjcount0)
+        }
+        field, rjcount = typ_field[typ]
+        return struct.pack(
+            rejoin_f.format(len(field)),
+            typ,
+            field,
+            self.deveui,
+            rjcount,
+        )
+

@@ -13,11 +13,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    'version',
+    '-n',
+    '--version',
     metavar='version',
-    help='Choose LoRaWAN version, 1.0.2 or 1.1',
+    help='Choose LoRaWAN version, 1.0.2 or 1.1, only works for brand new device',
     choices=['1.0.2', '1.1'],
-    default='1.0.2'
+    default='1.1'
 )
 
 parser.add_argument(
@@ -30,6 +31,10 @@ parser.add_argument(
 
 parser.add_argument(
     '-c', help='MAC Command in FRMPayload field', dest='cmd'
+)
+
+parser.add_argument(
+    '-d', help='Start debug mode, log more infomation', dest='debug', action='store_true'
 )
 
 del argparse
