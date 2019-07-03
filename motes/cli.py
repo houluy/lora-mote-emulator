@@ -34,7 +34,11 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '-d', help='Start debug mode, log more infomation', dest='debug', action='store_true'
+    '-d', '--debug', help='Start debug mode, log more infomation', dest='debug', action='store_true'
+)
+
+parser.add_argument(
+    '-u', '--unconfirm', help='Enable unconfirmed data up', dest='unconfirm', action='store_true'
 )
 
 del argparse

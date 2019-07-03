@@ -17,6 +17,7 @@ GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 logger = logging.getLogger('main')
 
 MHDR_LEN = 1
+MTYPE_OFFSET = 5
 JOINACPT_CFLIST_OFFSET = 12
 AES_BLOCK = 16
 
@@ -316,6 +317,27 @@ class Mote:
             result.append(b1 ^ b2)
         return bytes(result)
 
+    @staticmethod
+    def parse_byte(data: bytes, name: list, offset: list, bitlength: list):
+        '''
+        Parse one-byte data into several fields by bits
+        @ data: Original byte data
+        @ name: List of names for each field
+        @ offset: Offset number of each field
+        @ bitlength: Bit length of each field
+
+        % dict: field name - field value in integer
+        '''
+        assert len(name) == len(offset) == len(length)
+        data = int.from_bytes(data)
+        res = {}
+        for ind, value in enumerate(name):
+            off, leng = offset[ind], length[ind]
+            binmask = '1'*leng + '0'*off
+            mask = int(binmask, base=2)
+            res[name] = (data & mask) >> off
+        return res
+
     @classmethod
     def load(cls, filename):
         with open(filename, 'rb') as f:
@@ -471,12 +493,25 @@ class Mote:
             mic
         )
 
+    def parse_mhdr(self, mhdr):
+        '''
+        MHDR
+        -----------------------
+        | MType | RFU | Major |
+        -----------------------
+        |  000  | 000 |  00   |
+        -----------------------
+        '''
+
+        msgtyp = (mhdr >> MTYPE_OFFSET)
+
     def parse_joinacpt(self, mhdr, joinacpt, mic):
+        self.
         self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
         self.joinnonce, self.netid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
-                self.joinacpt_f,
-                joinacpt[:JOINACPT_CFLIST_OFFSET]
-            )
+            self.joinacpt_f,
+            joinacpt[:JOINACPT_CFLIST_OFFSET]
+        )
         # Check OptNeg flag in DLSettings
         optneg, _ = self.parse_dlsettings(self.dlsettings)
         if optneg:
@@ -511,8 +546,11 @@ class Mote:
         |   0    |    000      |     0000      |
         ----------------------------------------
         '''
-        optneg = dlsettings & 0x80
-        rx1droffset = dlsettings & 0x70
+        dlsettings = int.from_bytes(dlsettings)
+        optnegoffset = 7
+        rx1droffset = 4
+        optneg = dlsettings >> optnegoffset
+        rx1droffset = (dlsettings & 0x70) >> rx1droffset
         rx2datarate = dlsettings & 0x0F
         return optneg, rx1droffset, rx2datarate
 
