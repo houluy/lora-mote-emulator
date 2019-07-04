@@ -328,14 +328,14 @@ class Mote:
 
         % dict: field name - field value in integer
         '''
-        assert len(name) == len(offset) == len(length)
-        data = int.from_bytes(data)
+        assert len(name) == len(offset) == len(bitlength)
+        data = int.from_bytes(data, byteorder='little')
         res = {}
         for ind, value in enumerate(name):
-            off, leng = offset[ind], length[ind]
+            off, leng = offset[ind], bitlength[ind]
             binmask = '1'*leng + '0'*off
             mask = int(binmask, base=2)
-            res[name] = (data & mask) >> off
+            res[value] = (data & mask) >> off
         return res
 
     @classmethod
@@ -450,12 +450,6 @@ class Mote:
         cryptor = AES.new(root, mode)
         return [cryptor.encrypt(msg) for msg in keymsgs]
 
-    def gen_sess_keys(self):
-        pad = b'\x00\x00\x00\x00\x00\x00\x00'
-        nwkskeymsg = b'\01' + self.joinnonce + self.netid + self.devnonce + pad
-        appskeymsg = b'\02' + self.joinnonce + self.netid + self.devnonce + pad
-        return self.gen_keys(self.appkey, (nwkskeymsg, appskeymsg))
-
     def form_join(self):
         '''
         @ joinreqtyp: 
@@ -502,11 +496,12 @@ class Mote:
         |  000  | 000 |  00   |
         -----------------------
         '''
-
-        msgtyp = (mhdr >> MTYPE_OFFSET)
+        name = ('mtype', 'rfu', 'major')
+        bitlength = (3, 3, 2)
+        offset = (5, 2, 0)
+        return self.parse_byte(mhdr, name=name, bitlength=bitlength, offset=offset)
 
     def parse_joinacpt(self, mhdr, joinacpt, mic):
-        self.
         self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
         self.joinnonce, self.netid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
             self.joinacpt_f,
@@ -546,13 +541,10 @@ class Mote:
         |   0    |    000      |     0000      |
         ----------------------------------------
         '''
-        dlsettings = int.from_bytes(dlsettings)
-        optnegoffset = 7
-        rx1droffset = 4
-        optneg = dlsettings >> optnegoffset
-        rx1droffset = (dlsettings & 0x70) >> rx1droffset
-        rx2datarate = dlsettings & 0x0F
-        return optneg, rx1droffset, rx2datarate
+        name = ('optneg', 'rx1droffset', 'rx2dr')
+        bitlength = (1, 3, 4)
+        offset = (7, 4, 0)
+        return self.parse_byte(dlsettings, name=name, bitlength=bitlength, offset=offset)
 
     def parse_macpld(self, mhdr, macpldmv, mic):
         prefhdr = macpldmv[:7]
