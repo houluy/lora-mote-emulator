@@ -20,6 +20,7 @@ MHDR_LEN = 1
 MTYPE_OFFSET = 5
 JOINACPT_CFLIST_OFFSET = 12
 AES_BLOCK = 16
+MIC_LEN = 4
 
 
 class MICError(ValueError):
@@ -210,19 +211,18 @@ class GatewayOp:
             encrypted_data = data[MHDR_LEN:]
             macpayloadmic = mote.joinacpt_decrypt(encrypted_data)
             msglen = len(data)
-            pldlen = msglen - 1 - 4  # MHDR 1 byte, MIC 4 bytes
-            pullresp_f = '<{}s4s'.format(pldlen)
+            pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
+            pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
             macpayload, mic = struct.unpack(pullresp_f, macpayloadmic)
             mote.parse_joinacpt(mhdr, macpayload, mic)
         else:  # PULL RESP for app data
-            macpayload = data[MHDR_LEN:-4]
-            mic = data[-4:]
+            macpayload = data[MHDR_LEN:-MIC_LEN]
+            mic = data[-MIC_LEN:]
             mote.parse_macpld(mhdr, macpayload, mic)
 
 
 class Mote:
     devnoncelen = 2
-    miclen = 4
     joinreq_f = '<s8s8s2s4s'
     joinacpt_f = '<3s3s4sss'
     fhdr_f = '<4ssH'
@@ -247,16 +247,15 @@ class Mote:
         ],
     }
 
-    def __init__(self, joineui, deveui, appkey, nwkkey, conffile, version='1.0.2'):
+    def __init__(self, joineui, deveui, appkey, nwkkey, conffile):
         self.joineui = joineui[::-1]
         self.deveui = deveui[::-1]
         self.appkey, self.nwkkey = appkey, nwkkey
         self.conffile = conffile
-        self.version = version
 
-        self._initialization_by_ver()
+        self._initialization()
 
-    def _initialize(self, optneg):
+    def _initialize_session(self, optneg):
         if optneg:
             # Server supports LoRaWAN 1.1 and later
             # Generate FNwkSIntKey, SNwkSIntKey, NwkSEncKey and AppSKey
@@ -292,23 +291,21 @@ class Mote:
             ]
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
-        self.fcnt = 0
+        self.fcntup = 0
+        self.txdr = 5 # Uplink data rate index
+        self.txch = 7 # Channel index
         self.save()
 
-    def _initialization_by_ver(self):
-        if self.version == '1.0.2':
-            self.join_mic_key = self.nwkkey
-            self.joinacpt_dec_key = self.nwkkey
-        elif self.version == '1.1':
-            self.join_mic_key = self.nwkkey
-            self.joinacpt_dec_key = self.nwkkey
-            # Generate JS Int & Enc keys
-            # 0x06 \ 0x05 | DevEUI | pad 
-            jsintkeymsg, jsenckeymsg = [
-                (prefix + self.deveui).ljust(AES_BLOCK, b'\x00') 
-                for prefix in (b'\x06', b'\x05')
-            ]
-            self.jsintkey, self.jsenckey = self.gen_keys(self.nwkkey, (jsintkeymsg, jsenckeymsg))
+    def _initialization(self):
+        self.join_mic_key = self.nwkkey
+        self.joinacpt_dec_key = self.nwkkey
+        # Generate JS Int & Enc keys
+        # 0x06 \ 0x05 | DevEUI | pad 
+        jsintkeymsg, jsenckeymsg = [
+            (prefix + self.deveui).ljust(AES_BLOCK, b'\x00') 
+            for prefix in (b'\x06', b'\x05')
+        ]
+        self.jsintkey, self.jsenckey = self.gen_keys(self.nwkkey, (jsintkeymsg, jsenckeymsg))
 
     @staticmethod
     def bytes_xor(b1, b2):
@@ -353,56 +350,108 @@ class Mote:
         join_data = self.form_join()
         gateway.push(join_data, transmitter, self)
 
-    def app(self, gateway, transmitter, msg, fopts):
-        app_data = self.form_app(msg, self.app_preproc, fopts)
+    def app(self, gateway, transmitter, msg, fopts, unconfirmed=False):
+        app_data = self.form_app(msg, self.app_preproc, fopts, unconfirmed)
         gateway.push(app_data, transmitter, self)
 
     def cmd(self, gateway, transmitter, cmd):
         cmd_data = self.form_app(cmd, self.cmd_preproc, b'')
         gateway.push(cmd_data, transmitter, self)
 
-    def form_fctrl(self, foptslen):
-        return (0x2f & (foptslen | 0xF0)).to_bytes(1, 'big')
+    def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
+        '''
+        Form FCtrl byte in FHDR
+        @foptslen: Indicate the real length of FOpts field
+        @unconfirmed: Whether this is an UNconfirmed data up
+        %fctrl
 
-    def form_fhdr(self, fopts):
+        ---------------------------------------
+        | ADR | RFU | ACK | ClassB | FOptsLen |
+        ---------------------------------------
+        |  0  |  0  |  0  |    0   |   0000   |
+        ---------------------------------------
+        '''
+        mask = 0x0F if unconfirmed else 0x2F
+        return (mask & (foptslen | 0xF0)).to_bytes(1, 'big')
+
+    def form_fhdr(self, fopts, unconfirmed=False, version='1.1'):
+        '''
+        Form FHDR field
+        @fopts: FOpts values, could be empty bytes
+        @unconfirmed: Whether this is an UNconfirmed data up
+        @version: LoRaWAN version, if 1.1, then FOpts MUST be encrypted
+        %fhdr
+
+        ----------------------------------
+        | DevAddr | FCtrl | FCnt | FOpts |
+        ----------------------------------
+        |  0000   |   0   |  00  | 0 ~ 15|
+        ----------------------------------
+        '''
         foptslen = len(fopts)
         if foptslen:
-            fopts = fopts
+            if version == '1.1':
             # fOpts encryption is only required in LoRaWAN 1.1.
-            # fopts = self.encrypt(
-            #     self.nwkskey,
-            #     fopts,
-            #     direction=0,
-            #     devaddr=self.devaddr,
-            #     fcnt=self.fcnt,
-            # )
+                fopts = self.encrypt(
+                    self.nwksenckey,
+                    fopts,
+                    direction=0,
+                )
         fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
-        fctrl = self.form_fctrl(foptslen)
-        return struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
+        fctrl = self.form_fctrl(foptslen, unconfirmed)
+        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
 
-    def cal_mic(self, key, typ='app', **kwargs):
+    def calcmic(self, key, typ='app', version='1.1', **kwargs):
+        '''
+        Calculate the MIC field for uplink and downlink data
+        @key: Key used to decrypt
+        @typ: Type of data
+        @kwargs: Necessary parameters
+        %MIC value: 4 bytes
+
+        '''
         if typ == 'app':
-            B0_f = '<cHHB4sIBB'
-            msg = b''.join([
-                kwargs.get('mhdr'),
-                kwargs.get('fhdr'),
-                kwargs.get('fport').to_bytes(1, 'big'),
-                kwargs.get('frmpld'),
-            ])
-            msglen = len(msg)
-            conffcnt = 0
-            B0 = struct.pack(
-                B0_f,
-                b'\x49',
-                conffcnt,
-                0,
-                kwargs.get('direction'),
-                kwargs.get('devaddr'),
-                kwargs.get('fcnt'),
-                0,
-                msglen
-            )
-            msg = B0 + msg
+            direction = kwargs.get('direction')
+            if direction == 0: # Uplink
+                B_f = '<cHBBB4sIBB'
+                msg = b''.join([
+                    kwargs.get('mhdr'),
+                    kwargs.get('fhdr'),
+                    kwargs.get('fport').to_bytes(1, 'big'),
+                    kwargs.get('frmpld'),
+                ])
+                msglen = len(msg)
+                B0_elements = [
+                    b'\x49',
+                    self.conffcnt,
+                    0,
+                    0,
+                    direction,
+                    self.devaddr,
+                    self.fcntup,
+                    0,
+                    msglen
+                ]
+                B1_elements = B0_elements[:]
+                B1_elements[2:4] = [self.txdr, self.txch]
+                B0 = struct.pack(
+                    B_f,
+                    *B0_elements,
+                )
+                B1 = struct.pack(
+                    B_f,
+                    *B1_elements,
+                )
+                fmsg = B0 + msg
+                smsg = B1 + msg
+                fcmacobj = CMAC.new(self.fnwksintkey, ciphermod=AES)
+                scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
+                fcmac = fcmacobj.update(fmsg)
+                scmac = scmacobj.update(smsg)
+                if version == '1.1':
+                    return fcmac.digest()[:MIC_LEN//2] + scmac.digest()[:MIC_LEN//2]
+                else:
+                    return fcmac.digest()[:MIC_LEN]
         else:
             msgname = self.mic_msg_tpl[typ]
             def attr_by_name(attr):
@@ -411,9 +460,9 @@ class Mote:
                 except AttributeError:
                     return kwargs.get(attr)
             msg = b''.join(map(attr_by_name, msgname))
-        cobj = CMAC.new(key, ciphermod=AES)
-        cobj.update(msg)
-        return cobj.digest()[:Mote.miclen]
+            cobj = CMAC.new(key, ciphermod=AES)
+            cobj.update(msg)
+            return cobj.digest()[:MIC_LEN]
 
     def joinacpt_decrypt(self, macpayload):
         macpayloadlen = len(macpayload)
@@ -423,11 +472,10 @@ class Mote:
         cryptor = AES.new(self.joinacpt_dec_key, AES.MODE_ECB)
         return cryptor.encrypt(macpayload)
 
-    @staticmethod
-    def encrypt(key, payload, direction=0, **kwargs):
+    def encrypt(self, key, payload, direction=0):
         pldlen = len(payload)
         k = math.ceil(pldlen / 16)
-        payload += b'\x00'*(16*k - pldlen)
+        payload = payload.ljust(16*k, b'\x00')
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
         a_f = '<c4sB4sIBB'
@@ -437,8 +485,8 @@ class Mote:
                 b'\x01',
                 b'\x00'*4,
                 direction,
-                kwargs.get('devaddr'),
-                kwargs.get('fcnt'),
+                self.devaddr,
+                self.fnctup,
                 0,
                 i
             )
@@ -461,7 +509,7 @@ class Mote:
         self.joinreqtyp = b'\xFF'
         self.devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
         mhdr = b'\x00'
-        mic = self.cal_mic(
+        mic = self.calcmic(
             key=self.join_mic_key,
             typ='join',
             mhdr=mhdr
@@ -513,7 +561,7 @@ class Mote:
             joinacpt_mic_key = self.jsintkey
         else:
             joinacpt_mic_key = self.nwkkey
-        vmic = self.cal_mic(
+        vmic = self.calcmic(
             key=joinacpt_mic_key,
             typ='acpt',
             mhdr=mhdr,
@@ -528,7 +576,7 @@ class Mote:
                         self.dlsettings.hex(),
                         self.rxdelay.hex()
                     ))
-            self._initialize(optneg)
+            self._initialize_session(optneg)
         else:
             raise ValueError('MIC mismatch')
 
@@ -570,7 +618,7 @@ class Mote:
             devaddr=devaddr,
             fcnt=fcnt
         )
-        vmic = self.cal_mic(
+        vmic = self.calcmic(
             mhdr,
             self.nwkskey,
             direction=1,
@@ -603,32 +651,47 @@ class Mote:
             self.appskey,
             frmpld,
             devaddr=self.devaddr,
-            fcnt=self.fcnt,
+            fcntup=self.fcntup,
         )
         return fport, frmpld
 
     def cmd_preproc(self, cmd):
         fport = 0
         frmpld = self.encrypt(
-            self.nwkskey,
+            self.nwkencskey,
             cmd,
             devaddr=self.devaddr,
-            fcnt=self.fcnt,
+            fcntup=self.fcntup,
         )
         return fport, frmpld
 
-    def form_app(self, frmpld, preproc, fopts=b''):
-        '@preproc: different process for frmpld and fport'
-        mhdr = b'\x80'
-        fhdr = self.form_fhdr(fopts)
-        fhdrlen = len(fhdr)
+    def form_app(self, fport, frmpld, fopts=b'', unconfirmed=True, version='1.1'):
+        '''
+        @frmpld: Application message
+        @encrypt: Encryption of MACPayload (APP or CMD)
+        @fopts: MAC Command in FOpts field, < 15 bytes
+        @confirmed: Confirmed data up or unconfirmed data up
+        '''
+        if confirmed:
+            mhdr = b'\x80'
+        else:
+            mhdr = b'\x40'
+        fhdrlen, fhdr = self.form_fhdr(fopts, unconfirmed, version)
         frmpldlen = len(frmpld)
         app_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
             frmpldlen=frmpldlen,
         )
-        fport, frmpld = preproc(frmpld)
-        mic = self.cal_mic(
+        if fport == 0:
+            enckey = self.nwksenckey
+        else:
+            enckey = self.appskey
+        frmpld = self.encrypt(
+            enckey,
+            frmpld,
+            direction=0
+        )
+        mic = self.calcmic(
             mhdr,
             self.nwkskey,
             direction=0,

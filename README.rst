@@ -53,8 +53,7 @@ Tutorial
 --------
 
 - Copy a local config file and device info file from the template, then modify the src and dest address.
-- Modify device infomation in ``device.json`` you just copied.
-    Example: ::
+- Modify device infomation in ``device.json`` you just copied. An example: ::
 
         {
           "Device": {
@@ -69,10 +68,10 @@ Tutorial
             "GatewayEUI": "0000000000000000"
           }
         }
-    `Note`: If you want to emulate LoRaWAN 1.0 device, first set ``JoinEUI`` equals to ``AppEUI`` and set ``NwkKey`` equals to ``AppKey``, then, add ``-n 1.0.2`` flag in cli, and leave the rest to this emulator.
+    **Note**: If you want to emulate LoRaWAN 1.0 device, first set ``JoinEUI`` equal to ``AppEUI`` and set ``NwkKey`` equal to ``AppKey``, then, add ``-n 1.0.2`` flag, and leave the rest to this emulator.
 
 - Install the environment, and start the virtual shell ``pipenv shell``.
-- Currently, four kinds of message is supported: pull data, join confirmed data up (with or without FOpts) and MAC Commands in FRMPayload field:
+- Currently, four kinds of message is supported: pull data, join request, confirmed (or unconfirmed) data up (with or without FOpts) and MAC Commands in FRMPayload field:
 
 ::  
 

@@ -48,7 +48,7 @@ try:
     elif args.type == 'app':
         fopts = bytes.fromhex(args.fopts) if args.fopts else b''
         mote.app(
-            gateway, udp_client, args.msg.encode(), fopts
+            gateway, udp_client, args.msg.encode(), fopts, args.unconfirmed, args.version
         )
     elif args.type == 'cmd':
         pld = bytes.fromhex(args.cmd)
