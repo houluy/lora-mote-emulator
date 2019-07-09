@@ -47,7 +47,7 @@ def init():
         mote = mac.Mote.load(device_file)
     except FileNotFoundError:
         mote = mac.Mote(joineui, deveui, appkey, nwkkey, device_file)
-    gateway = mac.GatewayOp(gateway_id)
+    gateway = mac.Gateway(gateway_id)
     udp_client = network.UDPClient(target, address=local)
     return logger, args, gateway, udp_client, mote
 
@@ -63,6 +63,7 @@ def main():
         if args.type == 'pull':
             gateway.pull(udp_client)
         elif args.type == 'join':
+        # TODO: should be gateway.push(mote.join...
             mote.join(gateway, udp_client)
         elif args.type == 'app':
             fopts = bytes.fromhex(args.fopts) if args.fopts else b''

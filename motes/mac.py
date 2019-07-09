@@ -26,10 +26,19 @@ class MICError(ValueError):
     pass
 
 
-class GatewayOp:
+class Gateway:
     pullack_f = '<s2ss8s'
     pushack_f = '<s2ss'
     pullresp_f = '<s2ss'
+    txdr2datr = {
+        0: 'SF12BW125',
+        1: 'SF11BW125',
+        2: 'SF10BW125',
+        3: 'SF9BW125',
+        4: 'SF8BW125',
+        5: 'SF7BW125',
+        6: 'SF7BW250',
+    }
 
     def __init__(self, gateway_id):
         self.gateway_id = bytes.fromhex(gateway_id)
@@ -59,17 +68,16 @@ class GatewayOp:
             }
         }
 
-    @property
-    def rxpk(self):
+    def rxpk(self, mote):
         return {
             'rxpk': [{
                 "tmst": int(time.time()),
-                "chan": 7,
+                "chan": mote.txch,
                 "rfch": 0,
                 "freq": 435.9,
                 "stat": 1,
                 "modu": 'LORA',
-                "datr": 'SF12BW125',
+                "datr": self.txdr2datr[mote.txdr],
                 "codr": '4/5',
                 "lsnr": 2,
                 "rssi": -119,
@@ -78,9 +86,9 @@ class GatewayOp:
             }]
         }
 
-    def form_push_data(self, data):
+    def form_push_data(self, data, mote):
         data = self.b64data(data)
-        rxpk = self.add_data(self.rxpk, data)
+        rxpk = self.add_data(self.rxpk(mote), data)
         stat = self.stat
         rxpk.update(stat)
         return json.dumps(
@@ -131,8 +139,8 @@ class GatewayOp:
                     gateway_eui.hex()
                 ))
 
-    def push_data(self, data):
-        json_obj = self.form_push_data(data=data)
+    def push_data(self, data, mote):
+        json_obj = self.form_push_data(data=data, mote=mote)
         token = secrets.token_bytes(self.token_length)
         logger.info(
             ('PUSH DATA -\nVerson: {}, '
@@ -154,7 +162,7 @@ class GatewayOp:
         ])
 
     def push(self, data, transmitter, mote):
-        transmitter.send(self.push_data(data))
+        transmitter.send(self.push_data(data, mote))
         pushack = transmitter.recv()
         self.parse_pushack(pushack[0])
         pullresp = transmitter.recv()
@@ -239,9 +247,16 @@ class Mote:
         self.appkey, self.nwkkey = appkey, nwkkey
         self.conffile = conffile
 
-        self._initialization()
+        self.gen_jskeys()
 
     def _initialize_session(self, optneg):
+        """
+        Initialize session context according to optneg flag
+        Args:
+            optneg: 0 or 1
+        Returns:
+            None
+        """
         if optneg:
             # Server supports LoRaWAN 1.1 and later
             # Generate FNwkSIntKey, SNwkSIntKey, NwkSEncKey and AppSKey
@@ -282,7 +297,7 @@ class Mote:
         self.txch = 7 # Channel index
         self.save()
 
-    def _initialization(self):
+    def gen_jskeys(self):
         """
         Generate JS Int & Enc keys
         ------------------------------
