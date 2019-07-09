@@ -68,7 +68,8 @@ Tutorial
             "GatewayEUI": "0000000000000000"
           }
         }
-    **Note**: If you want to emulate LoRaWAN 1.0 device, first set ``JoinEUI`` equal to ``AppEUI`` and set ``NwkKey`` equal to ``AppKey``, then, add ``-n 1.0.2`` flag, and leave the rest to this emulator.
+    
+  **Note**: If you want to emulate LoRaWAN 1.0 device, first set ``JoinEUI`` equal to ``AppEUI`` and set ``NwkKey`` equal to ``AppKey``, then, add ``-n 1.0.2`` flag when sending app data.
 
 - Install the environment, and start the virtual shell ``pipenv shell``.
 - Currently, four kinds of message is supported: pull data, join request, confirmed (or unconfirmed) data up (with or without FOpts) and MAC Commands in FRMPayload field:
