@@ -16,7 +16,7 @@ parser.add_argument(
     '-n',
     '--version',
     metavar='version',
-    help='Choose LoRaWAN version, 1.0.2 or 1.1, only works for brand new device',
+    help='Choose LoRaWAN version, 1.0.2 or 1.1 (default)',
     choices=['1.0.2', '1.1'],
     default='1.1'
 )
