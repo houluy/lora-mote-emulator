@@ -20,6 +20,11 @@ MTYPE_OFFSET = 5
 JOINACPT_CFLIST_OFFSET = 12
 AES_BLOCK = 16
 MIC_LEN = 4
+DEVNONCE_LEN = 2
+DEVADDR_LEN = 4
+FCTRL_LEN = 1
+FCNT_LEN = 2
+FPORT_LEN = 1
 
 
 class MICError(ValueError):
@@ -27,6 +32,15 @@ class MICError(ValueError):
 
 
 class Gateway:
+    """
+    Gateway class
+
+    Attributes:
+        pullack_f: pull ACK struct format 
+        pushack_f: push ACK struct format
+        pullresp_f: pullresp struct format
+        txdr2datr: TxDr in mote converts to datr in txpk
+    """
     pullack_f = '<s2ss8s'
     pushack_f = '<s2ss'
     pullresp_f = '<s2ss'
@@ -38,6 +52,7 @@ class Gateway:
         4: 'SF8BW125',
         5: 'SF7BW125',
         6: 'SF7BW250',
+        7: 50000, # FSK modulation
     }
 
     def __init__(self, gateway_id):
@@ -185,6 +200,20 @@ class Gateway:
                 ))
 
     def parse_pullresp(self, pullresp, mote):
+        """
+        Parse the PULL RESP from LoRa Server
+        Args:
+            pullresp: PULL RESP bytes
+            mote: Object of Mote
+        Returns:
+            None
+
+        ---------------------------------------------------------------
+        | Protocol Version | PULL RESP Token | Identifier |  Payload  |
+        ---------------------------------------------------------------
+        |   0x01 or 0x02   |     2 bytes     |    0x03    |< 996 bytes|
+        ---------------------------------------------------------------
+        """
         pullresplen = len(pullresp)
         pullresp_f = self.pullresp_f + '{}s'.format(pullresplen - 4)
         version, token, identifier, txpk = struct.unpack(
@@ -212,12 +241,52 @@ class Gateway:
         } if typ == 'stat' else {'rxpk': [data]}
 
     def parse_txpk(self, txpk, mote):
-        data = memoryview(base64.b64decode(txpk.get('data')))
-        mote.parse_data(data)
+        """
+        Parse the txpk (downlink) data
+        Args:
+            txpk: a dict of txpk data (converted from JSON)
+            mote: Object of Mote
+        Returns:
+            None
+
+        ------------------------------
+        |       Required Fields      |
+        ------------------------------
+        | time |       UTC time      |
+        ------------------------------
+        | rfch |    Antenna index    |
+        ------------------------------
+        | codr |    ECC code rate    |
+        ------------------------------
+        | ipol |         True        |
+        ------------------------------
+        |       Optional Fields      |
+        ------------------------------
+        | imme |      Immediately    |
+        ------------------------------
+        | tmst |     When to send    |
+        ------------------------------
+        | freq |         MHz         |
+        ------------------------------
+        | powe |     Output power    |
+        ------------------------------
+        | modu |    "FSK" or "LORA"  |
+        ------------------------------
+        | datr |    SFnBWm or k Hz   |
+        ------------------------------
+        | size |     Size of data    |
+        ------------------------------
+        | data |  base64 phypayload  |
+        ------------------------------
+        | ncrc |  Physical layer CRC |
+        ------------------------------
+        """
+        phypld = memoryview(base64.b64decode(txpk.get('data')))
+        mote.parse_phypld(phypld)
         
 
 class Mote:
-    devnoncelen = 2
+
     joinreq_f = '<s8s8s2s4s'
     fhdr_f = '<4ssH'
     mic_msg_tpl = {
@@ -374,6 +443,7 @@ class Mote:
         Returns:
             A bytes of FCtrl field
 
+        Uplink FCtrl:
         ---------------------------------------
         | ADR | RFU | ACK | ClassB | FOptsLen |
         ---------------------------------------
@@ -383,22 +453,42 @@ class Mote:
         mask = 0x0F if unconfirmed else 0x2F
         return (mask & (foptslen | 0xF0)).to_bytes(1, 'big')
 
+    def parse_fctrl(self, fctrl):
+        """
+        Parse the FCtrl byte
+        Args:
+            fctrl: FCtrl byte
+        Returns:
+            A proxy of FCtrl values
+
+        Downlink FCtrl:
+        ---------------------------------------
+        | ADR | RFU | ACK |FPending| FOptsLen |
+        ---------------------------------------
+        |  0  |  0  |  0  |    0   |   0000   |
+        ---------------------------------------
+        """
+        name = ('adr', 'rfu', 'ack', 'fpending', 'foptslen')
+        bitlength = (1, 1, 1, 1, 4)
+        offset = (7, 6, 5, 4, 0)
+        return self.parse_byte(name=name, bitlength=bitlength, offset=offset)
+
     def form_fhdr(self, fopts, unconfirmed=False, version='1.1'):
-        '''
+        """
         Form FHDR field
         Args:
             fopts: FOpts values, could be empty bytes
             unconfirmed: Whether this is an UNconfirmed data up
             version: LoRaWAN version, if 1.1, then FOpts MUST be encrypted
         Returns:
-            bytes of FHDR field
+            Length and bytes of FHDR field
 
         ----------------------------------
         | DevAddr | FCtrl | FCnt | FOpts |
         ----------------------------------
         |  0000   |   0   |  00  | 0 ~ 15|
         ----------------------------------
-        '''
+        """
         foptslen = len(fopts)
         if foptslen:
             if version == '1.1':
@@ -411,6 +501,36 @@ class Mote:
         fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, unconfirmed)
         return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
+
+    def parse_fhdr(self, macpld):
+        """
+        Parse variable-length FHDR from MACPayload
+        Args:
+            macpld: memoryview of MACPayload bytes
+        Returns:
+            Length of FHDR bytes and dict of the FHDR data
+
+        The structure of FHDR field can be referred above
+        """
+        const_len = DEVADDR_LEN + FCTRL_LEN + FCNT_LEN
+        beforefopts_f = '<4sBH'
+        devaddr, fctrl, fcnt = struct.unpack(
+            beforefopts_f,
+            macpld[:const_len]
+        )
+        adr, _, ack, fpending, foptslen = self.parse_fctrl(fctrl)
+        fhdrlen = const_len + foptslen
+        fopts = macpld[const_len:fhdrlen]
+        fhdr = dict(
+            devaddr=devaddr,
+            adr=adr,
+            ack=ack,
+            fpending=fpending,
+            foptslen=foptslen,
+            fcnt=fcnt,
+            fopts=fopts
+        )
+        return fhdrlen, fhdr
 
     def calcmic_app(self, key, mhdr, fhdr, fport, frmpld, direction, version='1.1'):
         '''
@@ -511,21 +631,37 @@ class Mote:
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
-    def encrypt(self, key, payload, direction=0):
+    def encrypt(self, key, payload, direction=0, fcnt=0):
+        """
+        Encrypt and decrypt FRMPayload
+        Args:
+            key: Corresponding key
+            payload: Object payload
+            direction: 0 for uplink and 1 for downlink
+            fcnt: If direction is 1, this value MUST be provided
+        Returns:
+            bytes that stands for the encrypted or decrypted FRMPayload
+
+        Ai:
+        -----------------------------------------------------------
+        | 0x01 | 4 X 0x00 | Direction | DevAddr | FCnt | 0x00 | i |
+        -----------------------------------------------------------
+        """
         pldlen = len(payload)
         k = math.ceil(pldlen / 16)
         payload = payload.ljust(16*k, b'\x00')
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
-        a_f = '<c4sB4sIBB'
+        ai_f = '<c4sB4sIBB'
+        fcnt = self.fcntup if direction == 0 else fcnt
         for i in range(1, k + 1):
             Ai = struct.pack(
-                a_f,
+                ai_f,
                 b'\x01',
                 b'\x00'*4,
                 direction,
                 self.devaddr,
-                self.fnctup,
+                fcnt,
                 0,
                 i
             )
@@ -569,9 +705,9 @@ class Mote:
         ---------------------
         '''
         self.joinreqtyp = b'\xFF'
-        self.devnonce = secrets.token_bytes(self.devnoncelen)[::-1]
+        self.devnonce = secrets.token_bytes(DEVNONCE_LEN)[::-1]
         mhdr = b'\x00'
-        mic = self.calcmic(
+        mic = self.calcmic_join(
             key=self.joinmickey,
             typ='join',
             mhdr=mhdr
@@ -668,54 +804,64 @@ class Mote:
             raise MICError('MIC mismatches')
 
     def parse_dlsettings(self, dlsettings):
-        '''
-        DLSettings
+        """
+        Parse DLSettings field
+
         ----------------------------------------
         | OptNeg | RX1DRoffset | RX2 Data Rate |
         ----------------------------------------
         |   0    |    000      |     0000      |
         ----------------------------------------
-        '''
+        """
         name = ('optneg', 'rx1droffset', 'rx2dr')
         bitlength = (1, 3, 4)
         offset = (7, 4, 0)
         return self.parse_byte(dlsettings, name=name, bitlength=bitlength, offset=offset)
 
-    def parse_macpld(self, mhdr, macpldmv, mic):
-        prefhdr = macpldmv[:7]
-        beforefopts_f = '<4sBH'
-        devaddr, fctrl, fcnt = struct.unpack(
-            beforefopts_f,
-            prefhdr
-        )
-        foptslen = fctrl & 0b1111
-        fhdrlen = 7 + foptslen
-        fhdr = macpldmv[:fhdrlen]
-        fopts = fhdr[7:].tobytes()
-        fport = macpldmv[fhdrlen]
-        frmpld = macpldmv[fhdrlen + 1:].tobytes()
+    def parse_macpld(self, mhdr, macpld, mic):
+        """
+        Parse macpayload data (not join data)
+        Args:
+            mhdr: MHDR field
+            macpld: MACPayload field
+            mic: MIC
+        Returns:
+            None
+        Exceptions:
+            MICError: MIC mismatches
+
+        ------------------------------------
+        | MHDR | FHDR | FPort | FRMPayload |
+        ------------------------------------
+        |1 byte|  -   |1 byte |     -      |
+        ------------------------------------
+        """
+        macpld = memoryview(macpld)
+        fhdrlen, fhdr = self.parse_fhdr(macpld)
+        fport = macpld[fhdrlen:fhdrlen + FPORT_LEN]
+        frmpld = macpld[fhdrlen + FPORT_LEN:]
         if fport == 0:
-            key = self.nwkskey
+            key = self.nwksenckey
         else:
             key = self.appskey
-        frmpld = self.encrypt(
-            key,
-            frmpld,
-            direction=1,
-            devaddr=devaddr,
-            fcnt=fcnt
-        )
-        vmic = self.calcmic(
+        #TODO: The LoRaWAN version
+        vmic = self.calcmic_app(
+            self.snwksintkey,
             mhdr,
-            self.nwkskey,
             direction=1,
-            devaddr=self.devaddr,
             fcnt=fcnt,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
         )
         if (vmic == mic):
+            frmpld = self.encrypt(
+                key,
+                frmpld,
+                direction=1,
+                devaddr=devaddr,
+                fcnt=fhdr.get('fcnt') # This arg must be provided
+            )
             logger.info(
                 ('Downlink data (MIC verified) - \n'
                     'DevAddr: {}, '
@@ -731,7 +877,7 @@ class Mote:
                     ))
         else:
             raise MICError('MIC mismatches')
-
+        
     def app_preproc(self, frmpld):
         fport = random.randint(2, 255)
         frmpld = self.encrypt(
@@ -841,11 +987,11 @@ class Mote:
             rjcount,
         )
 
-    def parse_data(self, data: bytes):
+    def parse_phypld(self, phypld):
         '''
-        Parse the data inside txpk field
+        Parse phypayload inside txpk data
         Args:
-            data: data in txpk
+            phypld: phypaylod in txpk
         Returns:
             None
 
@@ -868,19 +1014,19 @@ class Mote:
         | 111 |       Proprietary     |
         -------------------------------
         '''
-        data = memoryview(data)
-        mhdr = data[:MHDR_LEN]
+        phypld = memoryview(phypld)
+        mhdr = phypld[:MHDR_LEN]
         mtype, _, major = self.parse_mhdr(mhdr).values()
         if mtype == 1:
-            encrypted_data = data[MHDR_LEN:]
-            macpldmic = self.joinacpt_decrypt(encrypted_data)
-            msglen = len(data)
+            encrypted_phypld = phypld[MHDR_LEN:]
+            macpldmic = self.joinacpt_decrypt(encrypted_phypld)
+            msglen = len(phypld)
             pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
             pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
             macpld, mic = struct.unpack(pullresp_f, macpldmic)
             self.parse_joinacpt(mhdr, macpld, mic)
-        else:  # PULL RESP for app data
-            macpld = data[MHDR_LEN:-MIC_LEN]
-            mic = data[-MIC_LEN:]
+        else:  # PULL RESP for app phypayload
+            macpld = phypld[MHDR_LEN:-MIC_LEN]
+            mic = phypld[-MIC_LEN:]
             self.parse_macpld(mhdr, macpld, mic)
 
