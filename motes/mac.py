@@ -55,14 +55,21 @@ class Gateway:
         7: 50000, # FSK modulation
     }
 
-    def __init__(self, gateway_id):
-        self.gateway_id = bytes.fromhex(gateway_id)
+    def __init__(self, gweui):
+        self.gweui = bytes.fromhex(gweui)
         self.version = b'\x02'
         self.pull_id = b'\x02'
-        self.push_id = b'\x00'
         self.token_length = 2
 
     def add_data(self, rxpk, data):
+        """
+        Add data and data size to rxpk
+        Args:
+            rxpk: Dict of rxpk lists
+            data: Target data
+        Returns:
+            A dict of complete rxpk data
+        """
         rxpk['rxpk'][0].update({
             'size': len(data),
             'data': data,
@@ -71,6 +78,11 @@ class Gateway:
 
     @property
     def stat(self):
+        """
+        property of stat field in PUSH_DATA payload
+        Returns:
+            A dict contains stat key-value
+        """
         return {
             "stat": {
                 "time": time.strftime(GMTformat, time.localtime()),
@@ -83,7 +95,14 @@ class Gateway:
             }
         }
 
-    def rxpk(self, mote):
+    def form_rxpk(self, mote):
+        """
+        Form rxpk field
+        Args:
+            mote: Object of Mote class to get "chan" and "datr" field
+        Returns:
+            A dict contains rxpk key-value
+        """
         return {
             'rxpk': [{
                 "tmst": int(time.time()),
@@ -101,16 +120,31 @@ class Gateway:
             }]
         }
 
-    def form_push_data(self, data, mote):
+    def form_push_pld(self, data, mote):
+        """
+        Form payload field of PUSH_DATA
+        Args:
+            data: data field in rxpk
+            mote: Object of Mote class
+        Returns:
+            Payload of the PUSH_DATA after ASCII encoding
+        """
         data = self.b64data(data)
-        rxpk = self.add_data(self.rxpk(mote), data)
+        payload = self.add_data(self.rxpk(mote), data)
         stat = self.stat
-        rxpk.update(stat)
+        payload.update(stat)
         return json.dumps(
-            rxpk
+            payload
         ).encode('ascii')
 
     def b64data(self, data):
+        """
+        base64 encode data, then decode to string by UTF-8
+        Args:
+            data: bytes data
+        Returns:
+            A string of base64 encoded data
+        """
         return base64.b64encode(data).decode()
 
     @property
@@ -124,14 +158,14 @@ class Gateway:
                     self.version.hex(),
                     token.hex(),
                     self.pull_id.hex(),
-                    self.gateway_id.hex()
+                    self.gweui.hex()
                 ))
 
         return b''.join([
             self.version,
             token,
             self.pull_id,
-            self.gateway_id
+            self.gweui
         ])
 
     def pull(self, transmitter):
@@ -154,9 +188,25 @@ class Gateway:
                     gateway_eui.hex()
                 ))
 
-    def push_data(self, data, mote):
-        json_obj = self.form_push_data(data=data, mote=mote)
+    def form_pshdat(self, data, mote):
+        """
+        Form the complete PUSH_DATA
+        Args:
+            data: PHYPayload from mote
+            mote: Object of Mote class
+        Returns:
+            A bytes of complete PUSH_DATA, ready to be sent
+
+        PUSH_DATA
+        ------------------------------------------------------------
+        |   Version    | Token | Identifier | GatewayEUI | Payload |
+        ------------------------------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x00    |   8 bytes  |    -    |
+        ------------------------------------------------------------
+        """
+        payload = self.form_push_pld(data=data, mote=mote)
         token = secrets.token_bytes(self.token_length)
+        push_id = b'\x00'
         logger.info(
             ('PUSH DATA -\nVerson: {}, '
                 'Token: {}, '
@@ -164,20 +214,29 @@ class Gateway:
                 'GatewayEUI: {}').format(
                     self.version.hex(),
                     token.hex(),
-                    self.push_id.hex(),
-                    self.gateway_id.hex(),
+                    push_id.hex(),
+                    self.gweui.hex(),
                 ))
 
         return b''.join([
             self.version,
             token,
-            self.push_id,
-            self.gateway_id,
-            json_obj,
+            push_id,
+            self.gweui,
+            payload,
         ])
 
-    def push(self, data, transmitter, mote):
-        transmitter.send(self.push_data(data, mote))
+    def push(self, transmitter, data, mote):
+        """
+        Sending PUSH_DATA from gateway to server.
+        Args:
+            transmitter: Transmitter between gateway to server, MUST have send() and recv() method.
+            data: PHYPayload from mote
+            mote: Object of Mote class, for extra usage
+        Returns:
+            A bytes of the data field in PULL_RESP txpk field, or an empty bytes if unconfirmed
+        """
+        transmitter.send(self.form_pshdat(data, mote))
         pushack = transmitter.recv()
         self.parse_pushack(pushack[0])
         pullresp = transmitter.recv()
@@ -286,6 +345,13 @@ class Gateway:
         
 
 class Mote:
+    """
+    This is the main class of LoRa end device
+    Attributes:
+        joinreq_f: Join request struct format
+        fhdr_f: FHDR field struct format
+        mic_msg_tpl: Required fields to calculate MIC of join message
+    """
 
     joinreq_f = '<s8s8s2s4s'
     fhdr_f = '<4ssH'
@@ -315,6 +381,8 @@ class Mote:
         self.deveui = deveui[::-1]
         self.appkey, self.nwkkey = appkey, nwkkey
         self.conffile = conffile
+        self.txdr = 5 # Uplink data rate index
+        self.txch = 7 # Channel index
 
         self.gen_jskeys()
 
@@ -362,8 +430,6 @@ class Mote:
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
         self.fcntup = 0
-        self.txdr = 5 # Uplink data rate index
-        self.txch = 7 # Channel index
         self.save()
 
     def gen_jskeys(self):
@@ -422,9 +488,14 @@ class Mote:
         with open(self.conffile, 'wb') as f:
             pickle.dump(self, f)
 
-    def join(self, gateway, transmitter):
-        join_data = self.form_join()
-        gateway.push(join_data, transmitter, self)
+    @property
+    def join(self):
+        """
+        Property of join request
+        Returns:
+            PHYPayload for join request
+        """
+        return self.form_join()
 
     def app(self, gateway, transmitter, msg, fopts, unconfirmed=False):
         app_data = self.form_app(msg, self.app_preproc, fopts, unconfirmed)
@@ -435,7 +506,7 @@ class Mote:
         gateway.push(cmd_data, transmitter, self)
 
     def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
-        '''
+        """
         Form FCtrl byte in FHDR
         Args:
             foptslen: Indicate the real length of FOpts field
@@ -449,7 +520,7 @@ class Mote:
         ---------------------------------------
         |  0  |  0  |  0  |    0   |   0000   |
         ---------------------------------------
-        '''
+        """
         mask = 0x0F if unconfirmed else 0x2F
         return (mask & (foptslen | 0xF0)).to_bytes(1, 'big')
 
@@ -533,7 +604,7 @@ class Mote:
         return fhdrlen, fhdr
 
     def calcmic_app(self, key, mhdr, fhdr, fport, frmpld, direction, version='1.1'):
-        '''
+        """
         Calculate the MIC field for uplink and downlink application data
         Args:
             key: Key used to CMAC
@@ -542,7 +613,7 @@ class Mote:
             typ: Type of data
         Returns:
             A 4-byte length bytes object of MIC field
-        '''
+        """
         msg = b''.join([
             mhdr,
             fhdr,
@@ -590,7 +661,7 @@ class Mote:
             return fcmac.digest()[:MIC_LEN]
 
     def calcmic_join(self, key, typ='join', **kwargs):
-        '''
+        """
         Calculate the MIC field for join-related data (join request, accept and rejoin)
         Args:
             key: Key used to CMAC
@@ -598,7 +669,7 @@ class Mote:
             kwargs: Extra parameters
         Returns:
             A 4-byte length bytes object of MIC field
-        '''
+        """
         msgname = self.mic_msg_tpl[typ]
         def attr_by_name(attr):
             try:
@@ -611,13 +682,14 @@ class Mote:
         return cobj.digest()[:MIC_LEN]
 
     def joinacpt_decrypt(self, macpld):
-        '''
+        """
         Decrypt join accept message
         Args:
             macpld: Encrypted macpayload
         Returns:
             bytes of decrypted join accept message
 
+        Decryption keys:
         ----------------------
         | ReqType |   Key    |
         ----------------------
@@ -625,7 +697,7 @@ class Mote:
         ----------------------
         | Rejoin  | JSEncKey |
         ----------------------
-        '''
+        """
         macpldlen = len(macpld)
         macpld = macpld.ljust(AES_BLOCK, b'\x00')
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
@@ -652,13 +724,13 @@ class Mote:
         payload = payload.ljust(16*k, b'\x00')
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
-        ai_f = '<c4sB4sIBB'
+        ai_f = '<cIB4sIBB'
         fcnt = self.fcntup if direction == 0 else fcnt
         for i in range(1, k + 1):
             Ai = struct.pack(
                 ai_f,
                 b'\x01',
-                b'\x00'*4,
+                0,
                 direction,
                 self.devaddr,
                 fcnt,
@@ -691,7 +763,7 @@ class Mote:
         return self.nwkkey if self.joinreqtyp == b'\xFF' else self.jsenckey
 
     def form_join(self):
-        '''
+        """
         Form join request
 
         ---------------------
@@ -703,7 +775,7 @@ class Mote:
         ---------------------
         |0x02| Rejoin type 2|
         ---------------------
-        '''
+        """
         self.joinreqtyp = b'\xFF'
         self.devnonce = secrets.token_bytes(DEVNONCE_LEN)[::-1]
         mhdr = b'\x00'
@@ -734,19 +806,20 @@ class Mote:
         )
 
     def parse_mhdr(self, mhdr):
-        '''
+        """
         Parse MHDR byte
         Args:
             mhdr: MHDR field
         Returns:
             A proxy of dict values, the field order sticks to the protocol
 
+        MHDR:
         -----------------------
         | MType | RFU | Major |
         -----------------------
         |  000  | 000 |  00   |
         -----------------------
-        '''
+        """
         name = ('mtype', 'rfu', 'major')
         bitlength = (3, 3, 2)
         offset = (5, 2, 0)
@@ -765,6 +838,7 @@ class Mote:
         Exceptions:
             MICError: MIC mismatches
 
+        Join Accept:
         --------------------------------------------------------------------
         | JoinNonce | Home_NetID | DevAddr | DLSettings | RxDelay | CFList |
         --------------------------------------------------------------------
@@ -818,6 +892,49 @@ class Mote:
         offset = (7, 4, 0)
         return self.parse_byte(dlsettings, name=name, bitlength=bitlength, offset=offset)
 
+    def parse_phypld(self, phypld):
+        """
+        Parse phypayload inside txpk data
+        Args:
+            phypld: phypaylod in txpk
+        Returns:
+            None
+
+        Message Type:
+        -------------------------------
+        | 000 |      Join request     |
+        -------------------------------
+        | 001 |      Join accept      |
+        -------------------------------
+        | 010 |  Unconfirmed data up  |
+        -------------------------------
+        | 011 | Unconfirmed data down |
+        -------------------------------
+        | 100 |   Confirmed data up   |
+        -------------------------------
+        | 101 |  Confirmed data down  |
+        -------------------------------
+        | 110 |     Rejoin request    |
+        -------------------------------
+        | 111 |       Proprietary     |
+        -------------------------------
+        """
+        phypld = memoryview(phypld)
+        mhdr = phypld[:MHDR_LEN]
+        mtype, _, major = self.parse_mhdr(mhdr).values()
+        if mtype == 1:
+            encrypted_phypld = phypld[MHDR_LEN:]
+            macpldmic = self.joinacpt_decrypt(encrypted_phypld)
+            msglen = len(phypld)
+            pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
+            pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
+            macpld, mic = struct.unpack(pullresp_f, macpldmic)
+            self.parse_joinacpt(mhdr, macpld, mic)
+        else:  # PULL RESP for app phypayload
+            macpld = phypld[MHDR_LEN:-MIC_LEN]
+            mic = phypld[-MIC_LEN:]
+            self.parse_macpld(mhdr, macpld, mic)
+
     def parse_macpld(self, mhdr, macpld, mic):
         """
         Parse macpayload data (not join data)
@@ -859,24 +976,20 @@ class Mote:
                 key,
                 frmpld,
                 direction=1,
-                devaddr=devaddr,
+                devaddr=fhdr.get('devaddr'),
                 fcnt=fhdr.get('fcnt') # This arg must be provided
             )
             logger.info(
-                ('Downlink data (MIC verified) - \n'
-                    'DevAddr: {}, '
-                    'FCnt: {}, '
-                    'FOpts: {}, '
-                    'FPort: {}, '
-                    'Payload: {}').format(
-                        devaddr.hex(),
-                        fcnt,
-                        fopts.hex(),
+                ('Downlink MACPayload, Important Info:\n'
+                    '\tFHDR: {}, '
+                    '\tFPort: {}, '
+                    '\tPayload: {}').format(
+                        fhdr,
                         fport,
                         frmpld.hex(),
                     ))
         else:
-            raise MICError('MIC mismatches')
+            raise MICError('MIC of MACPayload mismatches')
         
     def app_preproc(self, frmpld):
         fport = random.randint(2, 255)
@@ -899,7 +1012,7 @@ class Mote:
         return fport, frmpld
 
     def form_app(self, fport, frmpld, fopts=b'', unconfirmed=True, version='1.1'):
-        '''
+        """
         Form the application data
         Args:
             frmpld: Application message
@@ -908,7 +1021,7 @@ class Mote:
             confirmed: Confirmed data up or unconfirmed data up
         Returns:
             bytes of final application data
-        '''
+        """
         if confirmed:
             mhdr = b'\x80'
         else:
@@ -962,7 +1075,7 @@ class Mote:
         )
 
     def form_rejoin(self, typ=0):
-        '''
+        """
         rejoin request(typ 0 or 2):
         |  1 byte    | 3 bytes | 8 bytes | 2 bytes  |
         |rejoin type |  NetID  |  DevEUI | RJcount0 |
@@ -970,7 +1083,7 @@ class Mote:
         |  1 byte    | 8 bytes | 8 bytes | 2 bytes  |
         |rejoin type | JoinEUI |  DevEUI | RJcount1 |
         @typ: type of rejoin request, 0, 1 or 2.
-        '''
+        """
         self.joinreqtyp = typ.to_bytes(1, 'big')
         rejoin_f = '<s{}s8sh'
         typ_field = {
@@ -987,46 +1100,4 @@ class Mote:
             rjcount,
         )
 
-    def parse_phypld(self, phypld):
-        '''
-        Parse phypayload inside txpk data
-        Args:
-            phypld: phypaylod in txpk
-        Returns:
-            None
-
-        Message Type:
-        -------------------------------
-        | 000 |      Join request     |
-        -------------------------------
-        | 001 |      Join accept      |
-        -------------------------------
-        | 010 |  Unconfirmed data up  |
-        -------------------------------
-        | 011 | Unconfirmed data down |
-        -------------------------------
-        | 100 |   Confirmed data up   |
-        -------------------------------
-        | 101 |  Confirmed data down  |
-        -------------------------------
-        | 110 |     Rejoin request    |
-        -------------------------------
-        | 111 |       Proprietary     |
-        -------------------------------
-        '''
-        phypld = memoryview(phypld)
-        mhdr = phypld[:MHDR_LEN]
-        mtype, _, major = self.parse_mhdr(mhdr).values()
-        if mtype == 1:
-            encrypted_phypld = phypld[MHDR_LEN:]
-            macpldmic = self.joinacpt_decrypt(encrypted_phypld)
-            msglen = len(phypld)
-            pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
-            pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
-            macpld, mic = struct.unpack(pullresp_f, macpldmic)
-            self.parse_joinacpt(mhdr, macpld, mic)
-        else:  # PULL RESP for app phypayload
-            macpld = phypld[MHDR_LEN:-MIC_LEN]
-            mic = phypld[-MIC_LEN:]
-            self.parse_macpld(mhdr, macpld, mic)
 

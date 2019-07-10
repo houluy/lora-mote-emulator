@@ -42,12 +42,12 @@ def init():
     device_info = device_conf.get('Device')
     joineui = bytes.fromhex(device_info.get('JoinEUI'))
     deveui = bytes.fromhex(device_info.get('DevEUI'))
-    gateway_id = device_conf.get('Gateway').get('GatewayEUI')
+    gweui = device_conf.get('Gateway').get('GatewayEUI')
     try:
         mote = mac.Mote.load(device_file)
     except FileNotFoundError:
         mote = mac.Mote(joineui, deveui, appkey, nwkkey, device_file)
-    gateway = mac.Gateway(gateway_id)
+    gateway = mac.Gateway(gweui)
     udp_client = network.UDPClient(target, address=local)
     return logger, args, gateway, udp_client, mote
 
@@ -63,8 +63,7 @@ def main():
         if args.type == 'pull':
             gateway.pull(udp_client)
         elif args.type == 'join':
-        # TODO: should be gateway.push(mote.join...
-            mote.join(gateway, udp_client)
+            ack, pull_resp = gateway.push(udp_client, mote.join, mote)
         elif args.type == 'app':
             fopts = bytes.fromhex(args.fopts) if args.fopts else b''
             mote.app(
