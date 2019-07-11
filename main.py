@@ -62,20 +62,20 @@ def main():
     try:
         if args.type == 'pull':
             gateway.pull(udp_client)
-        elif args.type == 'join':
-            ack, pull_resp = gateway.push(udp_client, mote.join, mote)
-        elif args.type == 'app':
-            fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-            mote.app(
-                gateway, udp_client, args.msg.encode(), fopts, args.unconfirmed, args.version
-            )
-        elif args.type == 'cmd':
-            pld = bytes.fromhex(args.cmd)
-            mote.cmd(
-                gateway, udp_client, pld
-            )
         else:
-            raise NotImplementedError
+            if args.type == 'join':
+                phypld = mote.join
+            elif args.type == 'app':
+                fopts = bytes.fromhex(args.fopts) if args.fopts else b''
+                fport = random.randint(1, 255)
+                msg = args.msg.encode()
+                phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed, args.version)
+            elif args.type == 'cmd':
+                fport = 0
+                phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed, version=args.version)
+            else:
+                raise NotImplementedError
+            gateway.push(udp_client, phypld, mote)
     except socket.timeout as e:
         logger.exception('Socket Timeout, remote server is unreachable')
     except AttributeError as e:

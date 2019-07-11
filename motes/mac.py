@@ -1,3 +1,14 @@
+"""
+Main programs of this emulator.
+Author: Houlu
+Email: houlu8674@bupt.edu.cn
+
+Class:
+    Gateway: Emulation of LoRaWAN gateway behaviors.
+        According to Gateway to Server Interface from Semtech. 
+    Mote: Emulation of LoRaWAN end devices
+"""
+
 import base64
 import json
 import logging
@@ -58,7 +69,6 @@ class Gateway:
     def __init__(self, gweui):
         self.gweui = bytes.fromhex(gweui)
         self.version = b'\x02'
-        self.pull_id = b'\x02'
         self.token_length = 2
 
     def add_data(self, rxpk, data):
@@ -149,7 +159,12 @@ class Gateway:
 
     @property
     def pull_data(self):
+        """
+        Property of PULL_DATA
+        """
+        plldat_f = 's2ss8s'
         token = secrets.token_bytes(self.token_length)
+        pull_id = b'\x02'
         logger.info(
             ('PULL DATA -\nVersion: {}, '
                 'Token: {}, '
@@ -157,23 +172,52 @@ class Gateway:
                 'GatewayEUI: {}').format(
                     self.version.hex(),
                     token.hex(),
-                    self.pull_id.hex(),
+                    pull_id.hex(),
                     self.gweui.hex()
                 ))
 
-        return b''.join([
+        return struct.pack(
+            plldat_f,
             self.version,
             token,
-            self.pull_id,
-            self.gweui
-        ])
+            pull_id,
+            self.gweui,
+        )
 
     def pull(self, transmitter):
+        """
+        Sending PULL_DATA from gateway
+        Args:
+            transmitter: Transmitter between gateway to server, MUST have send() and recv() method.
+        Returns:
+            None
+
+        PULL_DATA:
+        --------------------------------------------------
+        |   Version    | Token | Identifier | GatewayEUI |
+        --------------------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x02    |   8 bytes  |
+        --------------------------------------------------
+        """
         transmitter.send(self.pull_data)
         res = transmitter.recv()
         self.parse_pullack(res[0])
 
     def parse_pullack(self, pullack):
+        """
+        Parse PULL_ACK message
+        Args:
+            pullack: bytes of PULL_ACK message
+        returns:
+            None
+
+        PULL_ACK:
+        --------------------------------------------------
+        |   Version    | Token | Identifier | GatewayEUI |
+        --------------------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x04    |   8 bytes  |
+        --------------------------------------------------
+        """
         pullack = memoryview(pullack)
         version, token, identifier, gateway_eui =\
             struct.unpack(self.pullack_f, pullack)
@@ -243,6 +287,20 @@ class Gateway:
         self.parse_pullresp(pullresp[0], mote)
 
     def parse_pushack(self, pushack):
+        """
+        Parse PUSH_ACK message
+        Args:
+            pushack: bytes of PUSH_ACK message
+        Returns:
+            None
+        
+        PUSH_ACK:
+        -----------------------------------
+        |  Version   | Token | Identifier |
+        -----------------------------------
+        |0x00 or 0x01|2 bytes|    0x01    |
+        -----------------------------------
+        """
         pushack = memoryview(pushack)
         version, token, identifier = struct.unpack(
             self.pushack_f,
@@ -290,14 +348,6 @@ class Gateway:
                     identifier.hex(),
                 ))
         self.parse_txpk(txpk, mote)
-
-    def form_json(self, attribute, typ='stat', **params):
-        data = {
-            k: params.get(k, '') for k in attribute
-        }
-        return {
-            'stat': data
-        } if typ == 'stat' else {'rxpk': [data]}
 
     def parse_txpk(self, txpk, mote):
         """
@@ -449,6 +499,14 @@ class Mote:
 
     @staticmethod
     def bytes_xor(b1, b2):
+        """
+        Calculate the XOR of two multiple bytes
+        Args:
+            b1: bytes
+            b2: bytes
+        Returns:
+            bytes of XOR results 
+        """
         result = bytearray()
         for b1, b2 in zip(b1, b2):
             result.append(b1 ^ b2)
@@ -496,14 +554,6 @@ class Mote:
             PHYPayload for join request
         """
         return self.form_join()
-
-    def app(self, gateway, transmitter, msg, fopts, unconfirmed=False):
-        app_data = self.form_app(msg, self.app_preproc, fopts, unconfirmed)
-        gateway.push(app_data, transmitter, self)
-
-    def cmd(self, gateway, transmitter, cmd):
-        cmd_data = self.form_app(cmd, self.cmd_preproc, b'')
-        gateway.push(cmd_data, transmitter, self)
 
     def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
         """
@@ -568,6 +618,7 @@ class Mote:
                     self.nwksenckey,
                     fopts,
                     direction=0,
+                    start=0,
                 )
         fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, unconfirmed)
@@ -591,7 +642,13 @@ class Mote:
         )
         adr, _, ack, fpending, foptslen = self.parse_fctrl(fctrl)
         fhdrlen = const_len + foptslen
-        fopts = macpld[const_len:fhdrlen]
+        fopts = self.encrypt(
+            self.nwksenckey,
+            macpld[const_len:fhdrlen],
+            direction=1,
+            fcnt=fcnt,
+            start=0
+        )
         fhdr = dict(
             devaddr=devaddr,
             adr=adr,
@@ -621,10 +678,7 @@ class Mote:
             frmpld,
         ])
         msglen = len(msg)
-        if direction == 0: # Uplink
-            B0_varfield = self.conffcnt
-        elif direction == 1: # Downlink
-            B0_varfield = 0
+        B0_varfield = self.fcntup if direction == 0 else 0
         B_f = '<cH{}B4sIBB'
         B0_elements = [
             b'\x49',
@@ -703,14 +757,16 @@ class Mote:
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
-    def encrypt(self, key, payload, direction=0, fcnt=0):
+    def encrypt(self, key, payload, direction=0, fcnt=0, start=1):
         """
-        Encrypt and decrypt FRMPayload
+        Encrypt and decrypt FRMPayload or FOpts
         Args:
             key: Corresponding key
             payload: Object payload
             direction: 0 for uplink and 1 for downlink
             fcnt: If direction is 1, this value MUST be provided
+            start: This arg differentiates the payload type (FRMPayload or FOpts)
+                by indicating the start value of block A. Default is 1 (FRMPayload).
         Returns:
             bytes that stands for the encrypted or decrypted FRMPayload
 
@@ -720,13 +776,13 @@ class Mote:
         -----------------------------------------------------------
         """
         pldlen = len(payload)
-        k = math.ceil(pldlen / 16)
-        payload = payload.ljust(16*k, b'\x00')
+        k = math.ceil(pldlen / AES_BLOCK)
+        payload = payload.ljust(AES_BLOCK * k, b'\x00')
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
         ai_f = '<cIB4sIBB'
         fcnt = self.fcntup if direction == 0 else fcnt
-        for i in range(1, k + 1):
+        for i in range(start, k + start):
             Ai = struct.pack(
                 ai_f,
                 b'\x01',
@@ -991,44 +1047,29 @@ class Mote:
         else:
             raise MICError('MIC of MACPayload mismatches')
         
-    def app_preproc(self, frmpld):
-        fport = random.randint(2, 255)
-        frmpld = self.encrypt(
-            self.appskey,
-            frmpld,
-            devaddr=self.devaddr,
-            fcntup=self.fcntup,
-        )
-        return fport, frmpld
-
-    def cmd_preproc(self, cmd):
-        fport = 0
-        frmpld = self.encrypt(
-            self.nwkencskey,
-            cmd,
-            devaddr=self.devaddr,
-            fcntup=self.fcntup,
-        )
-        return fport, frmpld
-
-    def form_app(self, fport, frmpld, fopts=b'', unconfirmed=True, version='1.1'):
+    def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False, version='1.1'):
         """
-        Form the application data
+        Form the MACPayload of normal application data
         Args:
+            fport: int value of FPort field
             frmpld: Application message
             encrypt: Encryption of MACPayload (APP or CMD)
             fopts: MAC Command in FOpts field, < 15 bytes
-            confirmed: Confirmed data up or unconfirmed data up
+            unconfirmed: Unconfirmed data up or confirmed data up
         Returns:
             bytes of final application data
+        Exceptions:
+            ValueError: FOpts MUST be empty if FPort is zero
         """
-        if confirmed:
-            mhdr = b'\x80'
-        else:
+        if unconfirmed:
             mhdr = b'\x40'
+        else:
+            mhdr = b'\x80'
+        if fport == 0 and fopts:
+            raise ValueError('Cannot set FPort and FOpts in one same frame')
         fhdrlen, fhdr = self.form_fhdr(fopts, unconfirmed, version)
         frmpldlen = len(frmpld)
-        app_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
+        phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
             frmpldlen=frmpldlen,
         )
@@ -1054,7 +1095,7 @@ class Mote:
         self.fcnt += 1
         self.save()
         logger.info(
-            ('Application Data -\n'
+            ('Unlink application data -\n'
                 'FHDR: {}, '
                 'FPort: {}, '
                 'FRMPayload (after encryption): {}, '
@@ -1066,7 +1107,7 @@ class Mote:
                 ))
 
         return struct.pack(
-            app_f,
+            phypld_f,
             mhdr,
             fhdr,
             fport,
@@ -1077,11 +1118,17 @@ class Mote:
     def form_rejoin(self, typ=0):
         """
         rejoin request(typ 0 or 2):
-        |  1 byte    | 3 bytes | 8 bytes | 2 bytes  |
-        |rejoin type |  NetID  |  DevEUI | RJcount0 |
+        ---------------------------------------------
+        |   1 byte    | 3 bytes | 8 bytes | 2 bytes  |
+        ---------------------------------------------
+        | rejoin type |  NetID  | DevEUI | RJcount0 |
+        ---------------------------------------------
         rejoin request(typ 1):
-        |  1 byte    | 8 bytes | 8 bytes | 2 bytes  |
-        |rejoin type | JoinEUI |  DevEUI | RJcount1 |
+        ---------------------------------------------
+        |   1 byte    | 8 bytes | 8 bytes | 2 bytes  |
+        ---------------------------------------------
+        | rejoin type | JoinEUI | DevEUI  | RJcount1 |
+        ---------------------------------------------
         @typ: type of rejoin request, 0, 1 or 2.
         """
         self.joinreqtyp = typ.to_bytes(1, 'big')
