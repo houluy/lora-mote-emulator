@@ -140,7 +140,7 @@ class Gateway:
             Payload of the PUSH_DATA after ASCII encoding
         """
         data = self.b64data(data)
-        payload = self.add_data(self.rxpk(mote), data)
+        payload = self.add_data(self.form_rxpk(mote), data)
         stat = self.stat
         payload.update(stat)
         return json.dumps(
@@ -546,15 +546,6 @@ class Mote:
         with open(self.conffile, 'wb') as f:
             pickle.dump(self, f)
 
-    @property
-    def join(self):
-        """
-        Property of join request
-        Returns:
-            PHYPayload for join request
-        """
-        return self.form_join()
-
     def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
         """
         Form FCtrl byte in FHDR
@@ -811,10 +802,6 @@ class Mote:
         return [cryptor.encrypt(msg) for msg in keymsgs]
 
     @property
-    def joinmickey(self):
-        return self.jsintkey if self.optneg else self.nwkkey
-
-    @property
     def joinenckey(self):
         return self.nwkkey if self.joinreqtyp == b'\xFF' else self.jsenckey
 
@@ -836,7 +823,7 @@ class Mote:
         self.devnonce = secrets.token_bytes(DEVNONCE_LEN)[::-1]
         mhdr = b'\x00'
         mic = self.calcmic_join(
-            key=self.joinmickey,
+            key=self.nwkkey,
             typ='join',
             mhdr=mhdr
         )

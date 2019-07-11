@@ -7,11 +7,12 @@ This is the main script of the emulator.
 import json
 import logging
 import socket
+import random
 
 import yaml
 
 from motes import mac, network
-from motes.cli import parser
+from motes.cli import define_parser
 
 def init():
     """
@@ -19,7 +20,7 @@ def init():
     """
     logger = logging.getLogger('main')
 
-    args = parser.parse_args()
+    args = define_parser().parse_args()
 
     if not args.debug:
         logger.exception = logger.error
@@ -64,7 +65,7 @@ def main():
             gateway.pull(udp_client)
         else:
             if args.type == 'join':
-                phypld = mote.join
+                phypld = mote.form_join()
             elif args.type == 'app':
                 fopts = bytes.fromhex(args.fopts) if args.fopts else b''
                 fport = random.randint(1, 255)
