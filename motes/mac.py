@@ -422,7 +422,21 @@ class Mote:
             'devaddr',
             'dlsettings',
             'rxdelay',
-            'cflist'
+            'cflist',
+        ],
+        'rejoin02': [
+            'mhdr',
+            'rejointyp',
+            'netid',
+            'deveui',
+            'rjcount0',
+        ],
+        'rejoin1': [
+            'mhdr',
+            'rejointyp',
+            'joineui',
+            'deveui',
+            'rjcount1',
         ],
     }
 
@@ -433,6 +447,7 @@ class Mote:
         self.conffile = conffile
         self.txdr = 5 # Uplink data rate index
         self.txch = 7 # Channel index
+        self.rjcount1 = 0 # Rejoin type 1 counter
 
         self.gen_jskeys()
 
@@ -479,7 +494,7 @@ class Mote:
             ]
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
-        self.fcntup = 0
+        self.fcntup = self.rjcount0 = 0
         self.save()
 
     def gen_jskeys(self):
@@ -711,7 +726,7 @@ class Mote:
         Args:
             key: Key used to CMAC
             typ: The type of message (join, acpt, rejn)
-            kwargs: Extra parameters
+            kwargs: Extra parameters (e.g. mhdr)
         Returns:
             A 4-byte length bytes object of MIC field
         """
@@ -808,6 +823,10 @@ class Mote:
     def form_join(self):
         """
         Form join request
+        Args:
+            None
+        Returns:
+            A bytes of join request PHYPayload
 
         ---------------------
         |0xFF| Join Request |
@@ -1104,11 +1123,17 @@ class Mote:
 
     def form_rejoin(self, typ=0):
         """
+        Form rejoin request
+        Args:
+            typ: type of rejoin request, can be 0, 1 or 2, default 0
+        Returns:
+            A bytes of rejoin request PHYPayload
+
         rejoin request(typ 0 or 2):
         ---------------------------------------------
         |   1 byte    | 3 bytes | 8 bytes | 2 bytes  |
         ---------------------------------------------
-        | rejoin type |  NetID  | DevEUI | RJcount0 |
+        | rejoin type |  NetID  | DevEUI  | RJcount0 |
         ---------------------------------------------
         rejoin request(typ 1):
         ---------------------------------------------
@@ -1116,22 +1141,31 @@ class Mote:
         ---------------------------------------------
         | rejoin type | JoinEUI | DevEUI  | RJcount1 |
         ---------------------------------------------
-        @typ: type of rejoin request, 0, 1 or 2.
         """
+        mhdr = b'\xC0' # Rejoin type
         self.joinreqtyp = typ.to_bytes(1, 'big')
-        rejoin_f = '<s{}s8sh'
+        rejoin_f = '<sB{}s8sH4s'
         typ_field = {
             0: (self.homenetid, self.rjcount0),
             1: (self.joineui, self.rjcount1),
             2: (self.homenetid, self.rjcount0)
         }
+        if typ == 0 or typ == 2:
+            self.rjcount0 += 1
+            mictyp = 'rejoin02'
+            mickey = self.snwksintkey
+        else:
+            self.rjcount1 += 1
+            mictyp = 'rejoin1'
+            mickey = self.jsintkey
         field, rjcount = typ_field[typ]
+        mic = self.calcmic_join(key=mickey, typ=mictyp, mhdr=mhdr)
         return struct.pack(
             rejoin_f.format(len(field)),
+            mhdr,
             typ,
             field,
             self.deveui,
             rjcount,
+            mic,
         )
-
-

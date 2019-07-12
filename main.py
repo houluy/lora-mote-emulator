@@ -66,6 +66,8 @@ def main():
         else:
             if args.type == 'join':
                 phypld = mote.form_join()
+            elif args.type == 'rejoin':
+                phypld = mote.form_rejoin(args.rejointyp)
             elif args.type == 'app':
                 fopts = bytes.fromhex(args.fopts) if args.fopts else b''
                 fport = random.randint(1, 255)

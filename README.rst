@@ -9,7 +9,7 @@ This is a useful tool to test LoRa server.
 
 To emulate end devices (a.k.a. Motes in |LoRaWAN(TM)| protocol)
 
-*Support* |LoRaWAN(TM)| *1.0.2 protocol* (1.1 under development)
+*Support* |LoRaWAN(TM)| *1.0.2 & 1.1 protocol*
 
 **Using Gateways from** |Semtech(TM)|
 
@@ -48,6 +48,29 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
 
     pipenv shell
     python main.py -h
+
+  Full help message::
+	usage: main.py [-h] [-n version] [-m MSG] [-f FOPTS] [-c CMD] [-d] [-u]
+				   [-r {0,1,2}]
+				   type
+
+	Tool for test on LoRaWAN server
+
+	positional arguments:
+	  type                  Data type of uplink, supported type list: ['join',
+							'app', 'pull', 'cmd', 'rejoin']
+
+	optional arguments:
+	  -h, --help            show this help message and exit
+	  -n version, --version version
+							Choose LoRaWAN version, 1.0.2 or 1.1(default)
+	  -m MSG                Payload
+	  -f FOPTS              MAC Command in FOpts field
+	  -c CMD                MAC Command in FRMPayload field
+	  -d, --debug           Start debug mode, log more infomation
+	  -u, --unconfirmed     Enable unconfirmed data up
+	  -r {0,1,2}, --rejoin {0,1,2}
+							Specify rejoin type, default is 0
 
 Tutorial
 --------
