@@ -49,7 +49,8 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
     pipenv shell
     python main.py -h
 
-  Full help message::
+  Full help message ::
+
 	usage: main.py [-h] [-n version] [-m MSG] [-f FOPTS] [-c CMD] [-d] [-u]
 				   [-r {0,1,2}]
 				   type
@@ -101,6 +102,7 @@ Tutorial
 
     python main.py pull
     python main.py join
+    python main.py rejoin -r (your type of rejoin)
     python main.py app -m (your uplink message, will be encoded by UTF-8) -f (your MACCommand in FOpts field)
     python main.py mac -c (your MAC Command in FRMPayload field)
 
