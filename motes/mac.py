@@ -936,9 +936,9 @@ class Mote:
                     ))
             self._initialize_session(optneg)
         else:
-            raise MICError('MIC mismatches:\n
-                Received MIC: {}\n
-                Calculated MIC: {}'.format(mic, vmic)
+            raise MICError('MIC mismatches:\n'
+                'Received MIC: {}\n'
+                'Calculated MIC: {}'.format(mic, vmic)
             )
 
     def parse_dlsettings(self, dlsettings):
