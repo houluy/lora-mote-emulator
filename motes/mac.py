@@ -745,7 +745,7 @@ class Mote:
         """
         Decrypt join accept message
         Args:
-            macpld: Encrypted macpayload
+            macpld: memoryview of encrypted macpayload
         Returns:
             bytes of decrypted join accept message
 
@@ -759,7 +759,7 @@ class Mote:
         ----------------------
         """
         macpldlen = len(macpld)
-        macpld = macpld.ljust(AES_BLOCK, b'\x00')
+        macpld = bytes(macpld.ljust(AES_BLOCK, b'\x00'))
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
@@ -911,16 +911,16 @@ class Mote:
         joinacpt = memoryview(joinacpt)
         self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
         self.joinnonce, self.homenetid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
-            self.joinacpt_f,
+            joinacpt_f,
             joinacpt[:JOINACPT_CFLIST_OFFSET]
         )
         # Check OptNeg flag in DLSettings
-        optneg, _ = self.parse_dlsettings(self.dlsettings)
+        optneg, self.rx1droffset, self.rx2dr = self.parse_dlsettings(self.dlsettings)
         if optneg:
             joinacpt_mic_key = self.jsintkey
         else:
             joinacpt_mic_key = self.nwkkey
-        vmic = self.calcmic(
+        vmic = self.calcmic_join(
             key=joinacpt_mic_key,
             typ='acpt',
             mhdr=mhdr,
@@ -929,20 +929,27 @@ class Mote:
             logger.info(
                 ('Join Accept (MIC verified) -\n'
                     'DevAddr: {}, '
-                    'DLSettings: {}, '
-                    'RxDelay: {}').format(
+                    'OptNeg: {}, '
+                    ).format(
                         self.devaddr.hex(),
-                        self.dlsettings.hex(),
-                        self.rxdelay.hex()
+                        optneg,
                     ))
             self._initialize_session(optneg)
         else:
-            raise MICError('MIC mismatches')
+            raise MICError('MIC mismatches:\n
+                Received MIC: {}\n
+                Calculated MIC: {}'.format(mic, vmic)
+            )
 
     def parse_dlsettings(self, dlsettings):
         """
         Parse DLSettings field
+        Args:
+            A byte of dlsettings
+        Returns:
+            A list of each field
 
+        DLSettings:
         ----------------------------------------
         | OptNeg | RX1DRoffset | RX2 Data Rate |
         ----------------------------------------
@@ -983,7 +990,7 @@ class Mote:
         """
         phypld = memoryview(phypld)
         mhdr = phypld[:MHDR_LEN]
-        mtype, _, major = self.parse_mhdr(mhdr).values()
+        mtype, _, major = self.parse_mhdr(mhdr)
         if mtype == 1:
             encrypted_phypld = phypld[MHDR_LEN:]
             macpldmic = self.joinacpt_decrypt(encrypted_phypld)
@@ -1088,7 +1095,7 @@ class Mote:
             frmpld,
             direction=0
         )
-        mic = self.calcmic(
+        mic = self.calcmic_app(
             mhdr,
             self.nwkskey,
             direction=0,
