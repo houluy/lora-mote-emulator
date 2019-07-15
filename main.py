@@ -72,10 +72,10 @@ def main():
                 fopts = bytes.fromhex(args.fopts) if args.fopts else b''
                 fport = random.randint(1, 255)
                 msg = args.msg.encode()
-                phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed, args.version)
+                phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed)
             elif args.type == 'cmd':
                 fport = 0
-                phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed, version=args.version)
+                phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
             else:
                 raise NotImplementedError
             gateway.push(udp_client, phypld, mote)

@@ -18,6 +18,7 @@ import random
 import secrets
 import struct
 import time
+import pathlib
 
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
@@ -444,7 +445,7 @@ class Mote:
         self.joineui = joineui[::-1]
         self.deveui = deveui[::-1]
         self.appkey, self.nwkkey = appkey, nwkkey
-        self.conffile = conffile
+        self.conffile = pathlib.Path(conffile)
         self.txdr = 5 # Uplink data rate index
         self.txch = 7 # Channel index
         self.rjcount1 = 0 # Rejoin type 1 counter
@@ -554,12 +555,16 @@ class Mote:
     def load(cls, filename):
         with open(filename, 'rb') as f:
             obj = pickle.load(f)
-        obj.conffile = filename
         return obj
 
     def save(self):
-        with open(self.conffile, 'wb') as f:
-            pickle.dump(self, f)
+        try:
+            self.conffile.parent.mkdir()
+        except FileExistsError:
+            pass
+        finally:
+            with open(self.conffile, 'wb') as f:
+                pickle.dump(self, f)
 
     def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
         """
@@ -628,7 +633,7 @@ class Mote:
                 )
         fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, unconfirmed)
-        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcnt, fopts)
+        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcntup, fopts)
 
     def parse_fhdr(self, macpld):
         """
@@ -666,16 +671,33 @@ class Mote:
         )
         return fhdrlen, fhdr
 
-    def calcmic_app(self, key, mhdr, fhdr, fport, frmpld, direction, version='1.1'):
+    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction):
         """
         Calculate the MIC field for uplink and downlink application data
         Args:
-            key: Key used to CMAC
             mhdr, fhdr, fport, frmpld: Necessary fields to compute
             direction: int object, 0 for uplink and 1 for downlink
             typ: Type of data
         Returns:
             A 4-byte length bytes object of MIC field
+
+        Downlink MIC B0:
+        ------------------------------------------------------------------------------
+        | 0x49 | ConfFCnt | 0x0000 | dir | DevAddr | AF(NF)CntDown | 0x00 | len(msg) |
+        ------------------------------------------------------------------------------
+        Downlink key: SNwkSIntKey
+
+        Uplink MIC B0:
+        ----------------------------------------------------------------
+        | 0x49 | 0x00000000 | dir | DevAddr | FCntUp | 0x00 | len(msg) |
+        ----------------------------------------------------------------
+        B0 key: FNwkSIntKey
+
+        B1:
+        ----------------------------------------------------------------------------
+        | 0x49 | ConfFCnt | TxDr | TxCh | dir | DevAddr | FCntUp | 0x00 | len(msg) |
+        ----------------------------------------------------------------------------
+        B1 key: SNwkSIntKey
         """
         msg = b''.join([
             mhdr,
@@ -684,7 +706,13 @@ class Mote:
             frmpld,
         ])
         msglen = len(msg)
-        B0_varfield = self.fcntup if direction == 0 else 0
+        if direction == 0:
+            #TODO: Must check Confirmed
+            B0_varfield = self.fcntup
+            key = self.fnwksintkey
+        else:
+            B0_varfield = 0
+            key = self.snwksintkey
         B_f = '<cH{}B4sIBB'
         B0_elements = [
             b'\x49',
@@ -703,9 +731,9 @@ class Mote:
         )
         
         fmsg = B0 + msg
-        fcmacobj = CMAC.new(self.fnwksintkey, ciphermod=AES)
+        fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
-        if version == '1.1':
+        if direction == 0:
             B1_elements = B0_elements[:]
             B1_elements[1] = self.txdr
             B1_elements.insert(2, self.txch)
@@ -759,7 +787,7 @@ class Mote:
         ----------------------
         """
         macpldlen = len(macpld)
-        macpld = bytes(macpld.ljust(AES_BLOCK, b'\x00'))
+        macpld = bytes(macpld).ljust(AES_BLOCK, b'\x00')
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
@@ -1100,12 +1128,12 @@ class Mote:
             self.nwkskey,
             direction=0,
             devaddr=self.devaddr,
-            fcnt=self.fcnt,
+            fcnt=self.fcntup,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
         )
-        self.fcnt += 1
+        self.fcntup += 1
         self.save()
         logger.info(
             ('Unlink application data -\n'
