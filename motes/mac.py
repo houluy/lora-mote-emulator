@@ -671,13 +671,13 @@ class Mote:
         )
         return fhdrlen, fhdr
 
-    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction):
+    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0):
         """
         Calculate the MIC field for uplink and downlink application data
         Args:
             mhdr, fhdr, fport, frmpld: Necessary fields to compute
             direction: int object, 0 for uplink and 1 for downlink
-            typ: Type of data
+            fcnt: Necessary only for downlink data
         Returns:
             A 4-byte length bytes object of MIC field
 
@@ -709,6 +709,7 @@ class Mote:
         if direction == 0:
             #TODO: Must check Confirmed
             B0_varfield = self.fcntup
+            fcnt = self.fcntup
             key = self.fnwksintkey
         else:
             B0_varfield = 0
@@ -721,7 +722,7 @@ class Mote:
             0,
             direction,
             self.devaddr,
-            self.fcntup,
+            fcnt,
             0,
             msglen
         ]
@@ -735,8 +736,8 @@ class Mote:
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            B1_elements[1] = self.txdr
-            B1_elements.insert(2, self.txch)
+            B1_elements[2] = self.txdr
+            B1_elements.insert(3, self.txch)
             B1 = struct.pack(
                 B_f.format('BB'),
                 *B1_elements,
@@ -1125,7 +1126,6 @@ class Mote:
         mic = self.calcmic_app(
             mhdr,
             direction=0,
-            devaddr=self.devaddr,
             fcnt=self.fcntup,
             fhdr=fhdr,
             fport=fport,
