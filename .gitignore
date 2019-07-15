@@ -1,3 +1,4 @@
 config/config.yml
 config/device.json
 *.pyc
+models/*

@@ -1060,7 +1060,6 @@ class Mote:
             key = self.appskey
         #TODO: The LoRaWAN version
         vmic = self.calcmic_app(
-            self.snwksintkey,
             mhdr,
             direction=1,
             fcnt=fcnt,
@@ -1125,7 +1124,6 @@ class Mote:
         )
         mic = self.calcmic_app(
             mhdr,
-            self.nwkskey,
             direction=0,
             devaddr=self.devaddr,
             fcnt=self.fcntup,
