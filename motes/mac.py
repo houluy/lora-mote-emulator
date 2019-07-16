@@ -711,13 +711,13 @@ class Mote:
             #TODO: Must check Confirmed
             fcnt = self.fcntup
             key = self.fnwksintkey
-            B0_varfield = 0
+            conffcnt = 0
         else:
             key = self.snwksintkey
-            B0_varfield = fcnt
+            conffcnt = fcnt
         B0_elements = [
             b'\x49',
-            B0_varfield,
+            conffcnt,
             0,
             0,
             direction,
@@ -735,7 +735,8 @@ class Mote:
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            B1_elements[1:4] = [self.fcntup, self.txdr, self.txch]
+            conffcnt = self.fcntup if confirmed else 0
+            B1_elements[1:4] = [conffcnt, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,
                 *B1_elements,
@@ -1074,7 +1075,6 @@ class Mote:
                 key,
                 frmpld,
                 direction=1,
-                devaddr=fhdr_d.get('devaddr'),
                 fcnt=fhdr_d.get('fcnt') # This arg must be provided
             )
             logger.info(
