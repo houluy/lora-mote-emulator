@@ -25,7 +25,7 @@ def define_parser():
     )
 
     parser.add_argument(
-        '-m', help='Payload', dest='msg'
+        '-m', help='FRMPayload in string', dest='msg'
     )
 
     parser.add_argument(

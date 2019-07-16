@@ -533,7 +533,7 @@ class Mote:
         """
         Parse one-byte data into several fields by bits
         Args:
-            data: Original byte data
+            data: Original one-byte data
             name: List of names for each field
             offset: Offset number of each field
             bitlength: Bit length of each field
@@ -603,7 +603,7 @@ class Mote:
         name = ('adr', 'rfu', 'ack', 'fpending', 'foptslen')
         bitlength = (1, 1, 1, 1, 4)
         offset = (7, 6, 5, 4, 0)
-        return self.parse_byte(name=name, bitlength=bitlength, offset=offset)
+        return self.parse_byte(fctrl, name=name, bitlength=bitlength, offset=offset)
 
     def form_fhdr(self, fopts, unconfirmed=False, version='1.1'):
         """
@@ -641,12 +641,12 @@ class Mote:
         Args:
             macpld: memoryview of MACPayload bytes
         Returns:
-            Length of FHDR bytes and dict of the FHDR data
+            Length of FHDR bytes, original bytes of FHDR and dict of FHDR fields
 
         The structure of FHDR field can be referred above
         """
         const_len = DEVADDR_LEN + FCTRL_LEN + FCNT_LEN
-        beforefopts_f = '<4sBH'
+        beforefopts_f = '<4ssH'
         devaddr, fctrl, fcnt = struct.unpack(
             beforefopts_f,
             macpld[:const_len]
@@ -655,12 +655,12 @@ class Mote:
         fhdrlen = const_len + foptslen
         fopts = self.encrypt(
             self.nwksenckey,
-            macpld[const_len:fhdrlen],
+            macpld[const_len:fhdrlen].tobytes(),
             direction=1,
             fcnt=fcnt,
             start=0
         )
-        fhdr = dict(
+        fhdr_d = dict(
             devaddr=devaddr,
             adr=adr,
             ack=ack,
@@ -669,9 +669,9 @@ class Mote:
             fcnt=fcnt,
             fopts=fopts
         )
-        return fhdrlen, fhdr
+        return fhdrlen, macpld[:fhdrlen], fhdr_d
 
-    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0):
+    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0, confirmed=True):
         """
         Calculate the MIC field for uplink and downlink application data
         Args:
@@ -706,15 +706,15 @@ class Mote:
             frmpld,
         ])
         msglen = len(msg)
+        B_f = '<cHBBB4sIBB'
         if direction == 0:
             #TODO: Must check Confirmed
-            B0_varfield = self.fcntup
             fcnt = self.fcntup
             key = self.fnwksintkey
-        else:
             B0_varfield = 0
+        else:
             key = self.snwksintkey
-        B_f = '<cH{}B4sIBB'
+            B0_varfield = fcnt
         B0_elements = [
             b'\x49',
             B0_varfield,
@@ -727,25 +727,23 @@ class Mote:
             msglen
         ]
         B0 = struct.pack(
-            B_f.format('H'),
+            B_f,
             *B0_elements,
         )
-        
         fmsg = B0 + msg
         fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            B1_elements[2] = self.txdr
-            B1_elements.insert(3, self.txch)
+            B1_elements[1:3] = [self.fcntup, self.txdr, self.txch]
             B1 = struct.pack(
-                B_f.format('BB'),
+                B_f,
                 *B1_elements,
             )
             smsg = B1 + msg
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
-            return fcmac.digest()[:MIC_LEN//2] + scmac.digest()[:MIC_LEN//2]
+            return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
         else:
             return fcmac.digest()[:MIC_LEN]
 
@@ -774,7 +772,7 @@ class Mote:
         """
         Decrypt join accept message
         Args:
-            macpld: memoryview of encrypted macpayload
+            macpld: bytes of encrypted macpayload
         Returns:
             bytes of decrypted join accept message
 
@@ -788,7 +786,7 @@ class Mote:
         ----------------------
         """
         macpldlen = len(macpld)
-        macpld = bytes(macpld).ljust(AES_BLOCK, b'\x00')
+        macpld = macpld.ljust(AES_BLOCK, b'\x00')
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
@@ -1022,7 +1020,7 @@ class Mote:
         mtype, _, major = self.parse_mhdr(mhdr)
         if mtype == 1:
             encrypted_phypld = phypld[MHDR_LEN:]
-            macpldmic = self.joinacpt_decrypt(encrypted_phypld)
+            macpldmic = self.joinacpt_decrypt(encrypted_phypld.tobytes())
             msglen = len(phypld)
             pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
             pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
@@ -1031,12 +1029,13 @@ class Mote:
         else:  # PULL RESP for app phypayload
             macpld = phypld[MHDR_LEN:-MIC_LEN]
             mic = phypld[-MIC_LEN:]
-            self.parse_macpld(mhdr, macpld, mic)
+            self.parse_macpld(mtype, mhdr, macpld, mic)
 
-    def parse_macpld(self, mhdr, macpld, mic):
+    def parse_macpld(self, mtype, mhdr, macpld, mic):
         """
         Parse macpayload data (not join data)
         Args:
+            mtype: Type of this MACPayload
             mhdr: MHDR field
             macpld: MACPayload field
             mic: MIC
@@ -1052,8 +1051,9 @@ class Mote:
         ------------------------------------
         """
         macpld = memoryview(macpld)
-        fhdrlen, fhdr = self.parse_fhdr(macpld)
-        fport = macpld[fhdrlen:fhdrlen + FPORT_LEN]
+        confirmed = True if mtype == 5 else False
+        fhdrlen, fhdr, fhdr_d = self.parse_fhdr(macpld)
+        fport = macpld[fhdrlen]
         frmpld = macpld[fhdrlen + FPORT_LEN:]
         if fport == 0:
             key = self.nwksenckey
@@ -1063,25 +1063,26 @@ class Mote:
         vmic = self.calcmic_app(
             mhdr,
             direction=1,
-            fcnt=fcnt,
+            fcnt=fhdr_d.get('fcnt'),
             fhdr=fhdr,
             fport=fport,
-            frmpld=frmpld,
+            frmpld=frmpld.tobytes(),
+            confirmed=confirmed
         )
         if (vmic == mic):
             frmpld = self.encrypt(
                 key,
                 frmpld,
                 direction=1,
-                devaddr=fhdr.get('devaddr'),
-                fcnt=fhdr.get('fcnt') # This arg must be provided
+                devaddr=fhdr_d.get('devaddr'),
+                fcnt=fhdr_d.get('fcnt') # This arg must be provided
             )
             logger.info(
                 ('Downlink MACPayload, Important Info:\n'
                     '\tFHDR: {}, '
                     '\tFPort: {}, '
                     '\tPayload: {}').format(
-                        fhdr,
+                        fhdr.hex(),
                         fport,
                         frmpld.hex(),
                     ))
@@ -1126,10 +1127,10 @@ class Mote:
         mic = self.calcmic_app(
             mhdr,
             direction=0,
-            fcnt=self.fcntup,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
+            confirmed=not unconfirmed
         )
         self.fcntup += 1
         self.save()
