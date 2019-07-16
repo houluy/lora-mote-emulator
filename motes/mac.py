@@ -735,7 +735,7 @@ class Mote:
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            B1_elements[1:3] = [self.fcntup, self.txdr, self.txch]
+            B1_elements[1:4] = [self.fcntup, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,
                 *B1_elements,
