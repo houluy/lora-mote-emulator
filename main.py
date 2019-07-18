@@ -78,7 +78,7 @@ def main():
                 phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
             else:
                 raise NotImplementedError
-            gateway.push(udp_client, phypld, mote)
+            gateway.push(udp_client, phypld, mote, args.unconfirmed)
     except socket.timeout as e:
         logger.exception('Socket Timeout, remote server is unreachable')
     except AttributeError as e:

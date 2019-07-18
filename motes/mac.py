@@ -22,6 +22,7 @@ import pathlib
 
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
+from collections import ChainMap
 
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
@@ -253,7 +254,7 @@ class Gateway:
         token = secrets.token_bytes(self.token_length)
         push_id = b'\x00'
         logger.info(
-            ('PUSH DATA -\nVerson: {}, '
+            ('Sending a PUSH DATA -\nVerson: {}, '
                 'Token: {}, '
                 'Identifier: {}, '
                 'GatewayEUI: {}').format(
@@ -271,21 +272,27 @@ class Gateway:
             payload,
         ])
 
-    def push(self, transmitter, data, mote):
+    def push(self, transmitter, data, mote, unconfirmed=False):
         """
         Sending PUSH_DATA from gateway to server.
         Args:
             transmitter: Transmitter between gateway to server, MUST have send() and recv() method.
             data: PHYPayload from mote
             mote: Object of Mote class, for extra usage
+            unconfirmed: If unconfirmed data, no downlink will be received
         Returns:
             A bytes of the data field in PULL_RESP txpk field, or an empty bytes if unconfirmed
         """
         transmitter.send(self.form_pshdat(data, mote))
         pushack = transmitter.recv()
         self.parse_pushack(pushack[0])
-        pullresp = transmitter.recv()
-        self.parse_pullresp(pullresp[0], mote)
+        if not unconfirmed:
+            pullresp = transmitter.recv()
+            self.parse_pullresp(pullresp[0], mote)
+        else:
+            logger.info(
+                ('This is an unconfirmed data up, therefore, no donwlink data will be received')
+            )
 
     def parse_pushack(self, pushack):
         """
@@ -308,7 +315,7 @@ class Gateway:
             pushack
         )
         logger.info(
-            ('PUSH ACK -\n'
+            ('Receiving a PUSH ACK -\n'
                 'Version: {}, '
                 'Token: {}, '
                 'Identifier: {}').format(
@@ -340,7 +347,7 @@ class Gateway:
         )
         txpk = json.loads(txpk.decode('ascii'))['txpk']
         logger.info(
-            ('PULL RESP - \n'
+            ('Receiving a PULL RESP - \n'
                 'Version: {}, '
                 'Token: {}, '
                 'Identifier: {} --').format(
@@ -398,48 +405,7 @@ class Gateway:
 class Mote:
     """
     This is the main class of LoRa end device
-    Attributes:
-        joinreq_f: Join request struct format
-        fhdr_f: FHDR field struct format
-        mic_msg_tpl: Required fields to calculate MIC of join message
     """
-
-    joinreq_f = '<s8s8s2s4s'
-    fhdr_f = '<4ssH'
-    mic_msg_tpl = {
-        'join': [
-            'mhdr',
-            'joineui',
-            'deveui',
-            'devnonce',
-        ],
-        'acpt': [
-            'joinreqtyp',
-            'joineui',
-            'devnonce',
-            'mhdr',
-            'joinnonce',
-            'homenetid',
-            'devaddr',
-            'dlsettings',
-            'rxdelay',
-            'cflist',
-        ],
-        'rejoin02': [
-            'mhdr',
-            'rejointyp',
-            'netid',
-            'deveui',
-            'rjcount0',
-        ],
-        'rejoin1': [
-            'mhdr',
-            'rejointyp',
-            'joineui',
-            'deveui',
-            'rjcount1',
-        ],
-    }
 
     def __init__(self, joineui, deveui, appkey, nwkkey, conffile):
         self.joineui = joineui[::-1]
@@ -622,6 +588,7 @@ class Mote:
         ----------------------------------
         """
         foptslen = len(fopts)
+        fhdr_f = '<4ssH'
         if foptslen:
             if version == '1.1':
             # fOpts encryption is only required in LoRaWAN 1.1.
@@ -631,7 +598,7 @@ class Mote:
                     direction=0,
                     start=0,
                 )
-        fhdr_f = self.fhdr_f + '{}s'.format(foptslen)
+        fhdr_f = fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, unconfirmed)
         return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcntup, fopts)
 
@@ -748,25 +715,68 @@ class Mote:
         else:
             return fcmac.digest()[:MIC_LEN]
 
-    def calcmic_join(self, key, typ='join', **kwargs):
+    def calcmic_join(self, key, macpld, optneg=0):
         """
         Calculate the MIC field for join-related data (join request, accept and rejoin)
         Args:
             key: Key used to CMAC
-            typ: The type of message (join, acpt, rejn)
-            kwargs: Extra parameters (e.g. mhdr)
+            macpld: MACPayload of join related messages
+            optneg: Flag of LoRaWAN version (and the type of accept message)
         Returns:
             A 4-byte length bytes object of MIC field
+
+        Join request MIC fields:
+        --------------------------------------
+        | MHDR | JoinEUI | DevEUI | DevNonce |
+        --------------------------------------
+        |1 byte| 8 bytes |8 bytes |  2 bytes |
+        --------------------------------------
+        Key: NwkKey
+
+        Rejoin 0 & 2 MIC fields:
+        --------------------------------------------------
+        | MHDR | Rejoin Type | NetID | DevEUI | RJcount0 |
+        --------------------------------------------------
+        |1 byte|    1 byte   |3 bytes|8 bytes |  2 bytes |
+        --------------------------------------------------
+        Key: SNwkSIntKey
+
+        Rejoin 1 MIC fields:
+        ----------------------------------------------------
+        | MHDR | Rejoin Type | JoinEUI | DevEUI | RJcount1 |
+        ----------------------------------------------------
+        |1 byte|    1 byte   | 8 bytes |8 bytes | 2 bytes  |
+        ----------------------------------------------------
+        Key: JSIntKey
+
+        Join accept MIC fields (OptNeg = 0, LoRaWAN 1.0):
+        ----------------------------------------------------------------------
+        | MHDR | JoinNonce | NetID | DevAddr | DLSettings | RxDelay | CFList |
+        ----------------------------------------------------------------------
+        |1 byte|  3 bytes  |3 bytes| 4 bytes |   1 byte   |  1 byte | 0 ~ 15 |
+        ----------------------------------------------------------------------
+        Key: NwkKey
+
+        The MACPayload can be directly used of upper messages.
+
+        Join accept MIC fields (OptNeg = 1, LoRaWAN 1.1):
+        -------------------------------------------------------------
+        | JoinReqType | JoinEUI | DevNonce | MHDR | JoinNonce | NetID ...
+        -------------------------------------------------------------
+        |   1 byte    | 8 bytes | 2 bytes  |1 byte|  2 bytes  | Same above
+        -------------------------------------------------------------
+        Key: JSIntKey
         """
-        msgname = self.mic_msg_tpl[typ]
-        def attr_by_name(attr):
-            try:
-                return getattr(self, attr)
-            except AttributeError:
-                return kwargs.get(attr)
-        msg = b''.join(map(attr_by_name, msgname))
+        if optneg:
+            acptopt_f = '<s8s2s'
+            macpld = struct.pack(
+                acptopt_f,
+                self.joinreqtyp,
+                self.joineui,
+                self.devnonce,
+            ) + macpld
         cobj = CMAC.new(key, ciphermod=AES)
-        cobj.update(msg)
+        cobj.update(macpld)
         return cobj.digest()[:MIC_LEN]
 
     def joinacpt_decrypt(self, macpld):
@@ -866,16 +876,24 @@ class Mote:
         |0x02| Rejoin type 2|
         ---------------------
         """
+        joinreq_f = '<s8s8s2s'
         self.joinreqtyp = b'\xFF'
         self.devnonce = secrets.token_bytes(DEVNONCE_LEN)[::-1]
         mhdr = b'\x00'
+        joinreq = struct.pack(
+            joinreq_f,
+            mhdr,
+            self.joineui,
+            self.deveui,
+            self.devnonce,
+        )
         mic = self.calcmic_join(
             key=self.nwkkey,
-            typ='join',
-            mhdr=mhdr
+            macpld=joinreq,
         )
+        joinreq_f = '<{}s4s'.format(struct.calcsize(joinreq_f))
         logger.info(
-            ('Join Request - \n'
+            ('Forming a join request message - \n'
                 'AppEUI: {}, '
                 'DevEUI: {}, '
                 'DevNonce: {}, '
@@ -887,12 +905,9 @@ class Mote:
                 ))
 
         return struct.pack(
-            self.joinreq_f,
-            mhdr,
-            self.joineui,
-            self.deveui,
-            self.devnonce,
-            mic
+            joinreq_f,
+            joinreq,
+            mic,
         )
 
     def parse_mhdr(self, mhdr):
@@ -950,15 +965,17 @@ class Mote:
             joinacpt_mic_key = self.nwkkey
         vmic = self.calcmic_join(
             key=joinacpt_mic_key,
-            typ='acpt',
-            mhdr=mhdr,
+            macpld=joinacpt,
+            optneg=optneg,
         )
         if (vmic == mic):
             logger.info(
                 ('Join Accept (MIC verified) -\n'
+                    'Join type: {},',
                     'DevAddr: {}, '
                     'OptNeg: {}, '
                     ).format(
+                        self.joinreqtyp,
                         self.devaddr.hex(),
                         optneg,
                     ))
@@ -1054,6 +1071,7 @@ class Mote:
         macpld = memoryview(macpld)
         confirmed = True if mtype == 5 else False
         fhdrlen, fhdr, fhdr_d = self.parse_fhdr(macpld)
+        fcntdown = fhdr_d.get('fcnt')
         fport = macpld[fhdrlen]
         frmpld = macpld[fhdrlen + FPORT_LEN:]
         if fport == 0:
@@ -1064,7 +1082,7 @@ class Mote:
         vmic = self.calcmic_app(
             mhdr,
             direction=1,
-            fcnt=fhdr_d.get('fcnt'),
+            fcnt=fcntdown,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld.tobytes(),
@@ -1073,16 +1091,17 @@ class Mote:
         if (vmic == mic):
             frmpld = self.encrypt(
                 key,
-                frmpld,
+                frmpld.tobytes(),
                 direction=1,
-                fcnt=fhdr_d.get('fcnt') # This arg must be provided
+                fcnt=fcntdown # This arg must be provided
             )
             logger.info(
                 ('Downlink MACPayload, Important Info:\n'
-                    '\tFHDR: {}, '
+                    '\tFHDR dict: {}, '
+                    '\tFCntDown: {},'
                     '\tFPort: {}, '
                     '\tPayload: {}').format(
-                        fhdr.hex(),
+                        fhdr_d,
                         fport,
                         frmpld.hex(),
                     ))
@@ -1130,19 +1149,21 @@ class Mote:
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
-            confirmed=not unconfirmed
+            confirmed=(not unconfirmed)
         )
         self.fcntup += 1
         self.save()
         logger.info(
-            ('Unlink application data -\n'
+            ('Uplink application data -\n'
                 'FHDR: {}, '
+                'FOpts: {}, '
                 'FPort: {}, '
                 'FRMPayload (after encryption): {}, '
                 'MIC: {} --').format(
                     fhdr.hex(),
+                    fopts.hex(),
                     fport,
-                    frmpld,
+                    frmpld.hex(),
                     mic.hex()
                 ))
 
@@ -1163,22 +1184,23 @@ class Mote:
         Returns:
             A bytes of rejoin request PHYPayload
 
-        rejoin request(typ 0 or 2):
+        Rejoin request(typ 0 or 2):
         ---------------------------------------------
         |   1 byte    | 3 bytes | 8 bytes | 2 bytes  |
         ---------------------------------------------
         | rejoin type |  NetID  | DevEUI  | RJcount0 |
         ---------------------------------------------
-        rejoin request(typ 1):
+
+        Rejoin request(typ 1):
         ---------------------------------------------
         |   1 byte    | 8 bytes | 8 bytes | 2 bytes  |
         ---------------------------------------------
         | rejoin type | JoinEUI | DevEUI  | RJcount1 |
         ---------------------------------------------
         """
-        mhdr = b'\xC0' # Rejoin type
+        mhdr = b'\xC0' # Rejoin MHDR
         self.joinreqtyp = typ.to_bytes(1, 'big')
-        rejoin_f = '<sB{}s8sH4s'
+        rejoin_f = '<sB{}s8sH'
         typ_field = {
             0: (self.homenetid, self.rjcount0),
             1: (self.joineui, self.rjcount1),
@@ -1186,20 +1208,36 @@ class Mote:
         }
         if typ == 0 or typ == 2:
             self.rjcount0 += 1
-            mictyp = 'rejoin02'
             mickey = self.snwksintkey
         else:
             self.rjcount1 += 1
-            mictyp = 'rejoin1'
             mickey = self.jsintkey
         field, rjcount = typ_field[typ]
-        mic = self.calcmic_join(key=mickey, typ=mictyp, mhdr=mhdr)
-        return struct.pack(
-            rejoin_f.format(len(field)),
+        rejoin_f = rejoin_f.format(len(field))
+        rjmsg = struct.pack(
+            rejoin_f,
             mhdr,
             typ,
             field,
             self.deveui,
             rjcount,
+        )
+        mic = self.calcmic_join(
+            key=mickey,
+            macpld=rjmsg,
+        )
+        logger.info(
+            ('Rejoin request -\n'
+                'Type: {}, '
+                'Message: {}, '
+                'MIC: {} --').format(
+                    typ,
+                    rjmsg.hex(),
+                    mic.hex()
+                ))
+        macpld_f = '<{}s4s'.format(struct.calcsize(rejoin_f))
+        return struct.pack(
+            macpld_f,
+            rjmsg,
             mic,
         )
