@@ -13,3 +13,11 @@ def test_parse_byte():
     assert b == 0b100
     assert c == 0b10
 
+def test_rejoin():
+    joineui = b'\xAA' * 8
+    deveui = b'\x00' * 8
+    appkey = b'\x11' * 16
+    nwkkey = b'\x22' * 16
+    device_file = 'test.pkl'
+    mote = Mote(joineui, deveui, appkey, nwkkey, device_file)
+    print(mote.form_rejoin(0))

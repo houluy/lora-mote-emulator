@@ -5,18 +5,18 @@ def define_parser():
         description='Tool for test on LoRaWAN server'
     )
 
-    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin']
+    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info']
 
     parser.add_argument(
         'type',
         metavar='type',
         help=f'Data type of uplink, supported type list: {message_lst}',
         choices=message_lst,
-        default='pull'
+        default='info'
     )
 
     parser.add_argument(
-        '-n',
+        '-v',
         '--version',
         metavar='version',
         help='Choose LoRaWAN version, 1.0.2 or 1.1(default)',
@@ -37,12 +37,20 @@ def define_parser():
     )
 
     parser.add_argument(
-        '-d', '--debug', help='Start debug mode, log more infomation', dest='debug', action='store_true'
+        '-u', '--unconfirmed', help='Enable unconfirmed data up', dest='unconfirmed', action='store_true'
     )
 
     parser.add_argument(
-        '-u', '--unconfirmed', help='Enable unconfirmed data up', dest='unconfirmed', action='store_true'
+        '-n', '--new', help='Flag for brand new device, using device info in device.yml config file', dest='new', action='store_true'
     )
+
+    parser.add_argument(
+        '--abp', help='Activate device in ABP mode', dest='abp', action='store_true'
+    )
+
+    #parser.add_argument(
+    #    '-i', '--info', help='Show information of current device for debugging', dest='info', action='store_true'
+    #)
 
     parser.add_argument(
         '-r',

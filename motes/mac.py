@@ -22,7 +22,7 @@ import pathlib
 
 from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
-from collections import ChainMap
+from collections import ChainMap, namedtuple
 
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
@@ -49,12 +49,10 @@ class Gateway:
     Gateway class
 
     Attributes:
-        pullack_f: pull ACK struct format 
         pushack_f: push ACK struct format
         pullresp_f: pullresp struct format
         txdr2datr: TxDr in mote converts to datr in txpk
     """
-    pullack_f = '<s2ss8s'
     pushack_f = '<s2ss'
     pullresp_f = '<s2ss'
     txdr2datr = {
@@ -214,24 +212,29 @@ class Gateway:
             None
 
         PULL_ACK:
-        --------------------------------------------------
-        |   Version    | Token | Identifier | GatewayEUI |
-        --------------------------------------------------
-        | 0x00 or 0x01 |2 bytes|    0x04    |   8 bytes  |
-        --------------------------------------------------
+        -------------------------------------
+        |   Version    | Token | Identifier |
+        -------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x04    |
+        -------------------------------------
         """
         pullack = memoryview(pullack)
-        version, token, identifier, gateway_eui =\
-            struct.unpack(self.pullack_f, pullack)
+        pullack_f = '<s2ss'
+        try:
+            version, token, identifier =\
+                struct.unpack(pullack_f, pullack)
+        except struct.error:
+            raise ValueError(
+                "Error format of PULL ACK data: {}".format(pullack.hex())
+            ) from None
         logger.info(
             ('PULL ACK -\nVersion: {}, '
                 'Token: {}, '
                 'Identifier: {}, '
-                'GatewayEUI: {}').format(
+                ).format(
                     version.hex(),
                     token.hex(),
                     identifier.hex(),
-                    gateway_eui.hex()
                 ))
 
     def form_pshdat(self, data, mote):
@@ -405,18 +408,23 @@ class Gateway:
 class Mote:
     """
     This is the main class of LoRa end device
+    Attributes:
+        joinmic_fields: A namedtuple for join mic calculations
     """
+    joinmic_fields = namedtuple('joinmic', ('struct_f', 'field_name'))
 
-    def __init__(self, joineui, deveui, appkey, nwkkey, conffile):
-        self.joineui = joineui[::-1]
-        self.deveui = deveui[::-1]
-        self.appkey, self.nwkkey = appkey, nwkkey
+    def __init__(self, joineui, deveui, appkey, nwkkey, conffile='models/device.pkl', **kwargs):
+        self.joineui = bytes.fromhex(joineui)
+        self.deveui = bytes.fromhex(deveui)
+        self.appkey, self.nwkkey = bytes.fromhex(appkey), bytes.fromhex(nwkkey)
         self.conffile = pathlib.Path(conffile)
         self.txdr = 5 # Uplink data rate index
         self.txch = 7 # Channel index
         self.rjcount1 = 0 # Rejoin type 1 counter
 
         self.gen_jskeys()
+        self.activation = False
+        self.activation_mode = 'OTAA'
 
     def _initialize_session(self, optneg):
         """
@@ -431,8 +439,8 @@ class Mote:
             # Generate FNwkSIntKey, SNwkSIntKey, NwkSEncKey and AppSKey
             nwkskey_prefix = b''.join([
                 self.joinnonce,
-                self.joineui,
-                self.devnonce,
+                self.joineui[::-1],
+                self.devnonce[::-1],
             ])
             fnwksint_msg, snwksint_msg, nwksenc_msg = [
                 (prefix + nwkskey_prefix).ljust(AES_BLOCK, b'\x00')
@@ -444,8 +452,8 @@ class Mote:
             appsmsg = b''.join([
                 b'\x02',
                 self.joinnonce,
-                self.joineui,
-                self.devnonce,
+                self.joineui[::-1],
+                self.devnonce[::-1],
             ]).ljust(AES_BLOCK, b'\x00')
             self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
         else:
@@ -453,7 +461,7 @@ class Mote:
             sesskey_prefix = b''.join([
                 self.joinnonce,
                 self.homenetid,
-                self.devnonce,
+                self.devnonce[::-1],
             ])
             apps_msg, fnwksint_msg = [
                 (prefix + sesskey_prefix).ljust(AES_BLOCK, b'\x00')
@@ -462,37 +470,8 @@ class Mote:
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
         self.fcntup = self.rjcount0 = 0
+        self.activation = True
         self.save()
-
-    def gen_jskeys(self):
-        """
-        Generate JS Int & Enc keys
-        ------------------------------
-        | 0x06 \ 0x05 | DevEUI | pad |
-        ------------------------------
-        |    1 byte   | 8 bytes|  -  |
-        ------------------------------
-        """
-        jsintkeymsg, jsenckeymsg = [
-            (prefix + self.deveui).ljust(AES_BLOCK, b'\x00') 
-            for prefix in (b'\x06', b'\x05')
-        ]
-        self.jsintkey, self.jsenckey = self.gen_keys(self.nwkkey, (jsintkeymsg, jsenckeymsg))
-
-    @staticmethod
-    def bytes_xor(b1, b2):
-        """
-        Calculate the XOR of two multiple bytes
-        Args:
-            b1: bytes
-            b2: bytes
-        Returns:
-            bytes of XOR results 
-        """
-        result = bytearray()
-        for b1, b2 in zip(b1, b2):
-            result.append(b1 ^ b2)
-        return bytes(result)
 
     @staticmethod
     def parse_byte(data: bytes, name: list, offset: list, bitlength: list):
@@ -519,6 +498,13 @@ class Mote:
 
     @classmethod
     def load(cls, filename):
+        """
+        Load device from pickle file
+        Args:
+            filename: pickle file of Mote object
+        Returns:
+            A new Mote object
+        """
         with open(filename, 'rb') as f:
             obj = pickle.load(f)
         return obj
@@ -531,6 +517,96 @@ class Mote:
         finally:
             with open(self.conffile, 'wb') as f:
                 pickle.dump(self, f)
+
+    @classmethod
+    def abp(cls, **kwargs):
+        """
+        Build device in ABP activation mode
+        Args:
+            **kwargs: Device parameters
+        Returns:
+            A new Mote object in ABP mode
+        """
+        mote = cls(**kwargs)
+        mote.activation = True
+        mote.activation_mode = 'ABP'
+        bytes_field = [
+            'deveui',
+            'joineui',
+            'devaddr',
+            'appkey',
+            'nwkkey',
+            'nwksenckey',
+            'snwksintkey',
+            'fnwksintkey',
+            'appskey'
+        ]
+        abp_dict = {
+            key: bytes.fromhex(kwargs.pop(key))
+            for key in bytes_field
+        }
+        mote.__dict__.update({
+            **abp_dict,
+            **kwargs,
+        })
+        mote.save()
+        return mote
+    def __repr__(self):
+        basic = (f'LoRa Motes Information:\n'
+            f'DevEUI: {self.deveui.hex()}\n'
+            f'NwkKey: {self.nwkkey.hex()}\n'
+            f'AppKey: {self.appkey.hex()}\n'
+            f'Activation mode: {self.activation_mode}\n'
+            f'Activation status: {self.activation}\n')
+        extra = actv_extra = ''
+        if self.activation:
+            extra = (f'\nDevAddr: {self.devaddr.hex()}\n'
+                f'JoinEUI: {self.joineui[::-1].hex()}\n'
+                f'FCntUp: {self.fcntup}\n'
+                f'JSIntKey: {self.jsintkey.hex()}\n'
+                f'JSEncKey: {self.jsenckey.hex()}\n'
+                f'FNwkSIntKey: {self.fnwksintkey.hex()}\n'
+                f'SNwkSIntKey: {self.snwksintkey.hex()}\n'
+                f'NwkSEncKey: {self.nwksenckey.hex()}\n'
+                f'AppSKey: {self.appskey.hex()}\n'
+            )
+            if self.activation_mode == 'OTAA':
+                actv_extra = (
+                    f'JoinNonce: {self.joinnonce[::-1].hex()}\n'
+                    f'DevNonce: {self.devnonce.hex()}\n'
+                )
+        return basic + extra + actv_extra
+
+    def gen_jskeys(self):
+        """
+        Generate JS Int & Enc keys
+        ------------------------------
+        | 0x06 \ 0x05 | DevEUI | pad |
+        ------------------------------
+        |    1 byte   | 8 bytes|  -  |
+        ------------------------------
+        """
+        jsintkeymsg, jsenckeymsg = [
+            (prefix + self.deveui[::-1]).ljust(AES_BLOCK, b'\x00') 
+            for prefix in (b'\x06', b'\x05')
+        ]
+        self.jsintkey, self.jsenckey = self.gen_keys(self.nwkkey, (jsintkeymsg, jsenckeymsg))
+
+    @staticmethod
+    def bytes_xor(b1, b2):
+        """
+        Calculate the XOR of two multiple bytes
+        Args:
+            b1: bytes
+            b2: bytes
+        Returns:
+            bytes of XOR results 
+        """
+        result = bytearray()
+        for b1, b2 in zip(b1, b2):
+            result.append(b1 ^ b2)
+        return bytes(result)
+
 
     def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
         """
@@ -709,9 +785,10 @@ class Mote:
                 *B1_elements,
             )
             smsg = B1 + msg
+            print('key: {} {}\nmsg: {} {}'.format(key.hex(), self.snwksintkey.hex(), fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
-            return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
+            return fcmac.digest()[:MIC_LEN]#scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
         else:
             return fcmac.digest()[:MIC_LEN]
 
@@ -767,13 +844,41 @@ class Mote:
         -------------------------------------------------------------
         Key: JSIntKey
         """
+        #joinreq_fields = ['mhdr', 'joineui', 'deveui', 'devnonce']
+        #rejoin0_fields = rejoin2_fields = ['mhdr', 'joinreqtyp', 'homenetid', 'deveui', 'rjcount0']
+        #rejoin1_fields = ['mhdr', 'joinreqtyp', 'joineui', 'deveui', 'rjcount1']
+        #joinacpt0_fields = ['mhdr', 'joinnonce', 'homenetid', 'devaddr', 'dlsettings', 'rxdelay', 'cflist']
+        #joinacpt1_fields = ['joinreqtyp', 'joineui', 'devnonce', *joinacpt0_fields]
+        #joinacpt_basic_f = 's3s3s4sss{}s'
+        #mic_f = {
+        #    'joinreq': self.joinmic_fields('<s8s8s2s', joinreq_fields),
+        #    'rejoin0': self.joinmic_fields('>ss3s8sH', rejoin0_fields),
+        #    'rejoin1': self.joinmic_fields('>ss8s8sH', rejoin1_fields),
+        #    'rejoin2': self.joinmic_fields('>ss3s8sH', rejoin2_fields),
+        #    'joinacpt0': self.joinmic_fields('>' + joinacpt_basic_f, joinacpt0_fields),
+        #    'joinacpt1': self.joinmic_fields('<s8s2s' + joinacpt_basic_f, joinacpt1_fields),
+        #}
+        #joinmic_field = mic_f[typ]
+        #def form_fields(name):
+        #    try:
+        #        return getattr(self, name)
+        #    except AttributeError:
+        #        return mhdr
+        #f = joinmic_field.struct_f
+        #if typ.startswith('joinacpt'):
+        #    f = f.format(len(self.cflist))
+        #print(list(map(form_fields, joinmic_field.field_name)))
+        #msg = struct.pack(
+        #    f,
+        #    *map(form_fields, joinmic_field.field_name)
+        #)
         if optneg:
             acptopt_f = '<s8s2s'
             macpld = struct.pack(
                 acptopt_f,
                 self.joinreqtyp,
-                self.joineui,
-                self.devnonce,
+                self.joineui[::-1],
+                self.devnonce[::-1],
             ) + macpld
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(macpld)
@@ -878,37 +983,43 @@ class Mote:
         """
         joinreq_f = '<s8s8s2s'
         self.joinreqtyp = b'\xFF'
-        self.devnonce = secrets.token_bytes(DEVNONCE_LEN)[::-1]
+        self.devnonce = secrets.token_bytes(DEVNONCE_LEN)
         mhdr = b'\x00'
         joinreq = struct.pack(
             joinreq_f,
             mhdr,
-            self.joineui,
-            self.deveui,
-            self.devnonce,
+            self.joineui[::-1],
+            self.deveui[::-1],
+            self.devnonce[::-1],
         )
         mic = self.calcmic_join(
             key=self.nwkkey,
             macpld=joinreq,
+            #mhdr=mhdr,
+            #typ='joinreq',
         )
         joinreq_f = '<{}s4s'.format(struct.calcsize(joinreq_f))
+        joinreq = struct.pack(
+            joinreq_f,
+            joinreq,
+            mic,
+        )
         logger.info(
             ('Forming a join request message - \n'
                 'AppEUI: {}, '
                 'DevEUI: {}, '
                 'DevNonce: {}, '
-                'MIC: {} --').format(
+                'MIC: {},'
+                'Final Join Req: {} -- '
+            ).format(
                     self.joineui.hex(),
                     self.deveui.hex(),
                     self.devnonce.hex(),
                     mic.hex(),
+                    joinreq.hex(),
                 ))
 
-        return struct.pack(
-            joinreq_f,
-            joinreq,
-            mic,
-        )
+        return joinreq
 
     def parse_mhdr(self, mhdr):
         """
@@ -965,20 +1076,28 @@ class Mote:
             joinacpt_mic_key = self.nwkkey
         vmic = self.calcmic_join(
             key=joinacpt_mic_key,
-            macpld=joinacpt,
+            macpld=mhdr.tobytes() + joinacpt.tobytes(),
             optneg=optneg,
+            #typ='joinacpt' + str(optneg)
         )
         if (vmic == mic):
             logger.info(
                 ('Join Accept (MIC verified) -\n'
-                    'Join type: {},',
+                    'Original data: {}\n'
+                    'MHDR: {},'
+                    'Join type: {},'
                     'DevAddr: {}, '
                     'OptNeg: {}, '
-                    ).format(
-                        self.joinreqtyp,
-                        self.devaddr.hex(),
-                        optneg,
-                    ))
+                    'CFList: {},'
+                ).format(
+                    joinacpt.tobytes().hex(),
+                    mhdr.hex(),
+                    self.joinreqtyp.hex(),
+                    self.devaddr.hex(),
+                    optneg,
+                    self.cflist.hex(),
+                ))
+
             self._initialize_session(optneg)
         else:
             raise MICError('MIC mismatches:\n'

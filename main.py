@@ -8,49 +8,58 @@ import json
 import logging
 import socket
 import random
+import sys
 
 import yaml
 
 from motes import mac, network
 from motes.cli import define_parser
+from motes.config import load_config, parse_config
 
-def init():
+
+class NewDeviceError(FileNotFoundError):
+    pass
+
+
+def init(args):
     """
     Initialization
+    Args:
+        args: Command line arguments
     """
-    logger = logging.getLogger('main')
-
-    args = define_parser().parse_args()
-
-    if not args.debug:
-        logger.exception = logger.error
-
-    config_file = 'config/config.yml'
-    original_file = 'config/device.json'
+    
+    original_file = 'config/device.yml'
+    abp_file = 'config/abp.yml'
     device_file = 'models/device.pkl'
 
-    with open(config_file) as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-
     with open(original_file) as f:
-        device_conf = json.load(f)
+        device_conf = parse_config(yaml.load(f, Loader=yaml.FullLoader))
 
-    target = (config.get('dest').get('hostname'), config.get('dest').get('port'))
-    local = (config.get('src').get('hostname'), config.get('src').get('port'))
-    appkey, nwkkey = [
-        bytes.fromhex(device_conf.get('keys').get(key)) for key in ['AppKey', 'NwkKey']
-    ]
-    device_info = device_conf.get('Device')
-    joineui = bytes.fromhex(device_info.get('JoinEUI'))
-    deveui = bytes.fromhex(device_info.get('DevEUI'))
-    gweui = device_conf.get('Gateway').get('GatewayEUI')
-    try:
-        mote = mac.Mote.load(device_file)
-    except FileNotFoundError:
-        mote = mac.Mote(joineui, deveui, appkey, nwkkey, device_file)
+    if args.abp:
+        with open(abp_file) as f:
+            abp_conf = yaml.load(f, Loader=yaml.FullLoader)
+        mote = mac.Mote.abp(**abp_conf)
+    else:
+        if args.new:
+            appkey = device_conf.Keys.AppKey
+            nwkkey = device_conf.Keys.NwkKey
+            device_info = device_conf.Device
+            joineui = device_info.JoinEUI
+            deveui = device_info.DevEUI
+            mote = mac.Mote(joineui, deveui, appkey, nwkkey, device_file)
+        else:
+            try:
+                mote = mac.Mote.load(device_file)
+            except FileNotFoundError:
+                raise NewDeviceError('No device found, please use -n flag to create brand new device\n'
+                    'or use abp command to activate new device by ABP') from None
+    config = load_config()
+    target = (config.dest.hostname, config.dest.port)
+    local = (config.src.hostname, config.src.port)
+    gweui = device_conf.Gateway.GatewayEUI
     gateway = mac.Gateway(gweui)
     udp_client = network.UDPClient(target, address=local)
-    return logger, args, gateway, udp_client, mote
+    return gateway, udp_client, mote
 
 
 def main():
@@ -58,11 +67,14 @@ def main():
 
     This is the main function
     """
-    logger, args, gateway, udp_client, mote = init()
-
+    logger = logging.getLogger('main')
     try:
+        args = define_parser().parse_args()
+        gateway, udp_client, mote = init(args)
         if args.type == 'pull':
             gateway.pull(udp_client)
+        elif args.type == 'info':
+            print(mote)
         else:
             if args.type == 'join':
                 phypld = mote.form_join()
@@ -84,10 +96,16 @@ def main():
     except AttributeError as e:
         logger.exception('You need to finish Join procedure before sending application data')
     except mac.MICError as e:
-        logger.exception('MIC mismatch')
+        logger.exception(e)
     except ValueError as e:
-        logger.exception('Value Error')
+        logger.exception(e)
     except NotImplementedError as e:
         logger.exception(e)
+    except NewDeviceError as e:
+        logger.exception(e)
+    except yaml.scanner.ScannerError as e:
+        logger.exception('Bad config file format, please copy a new file from template')
+    except Exception as e:
+        logger.error(e)
 
 main()
