@@ -5,7 +5,7 @@ def define_parser():
         description='Tool for test on LoRaWAN server'
     )
 
-    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info']
+    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp']
 
     parser.add_argument(
         'type',
@@ -41,12 +41,13 @@ def define_parser():
     )
 
     parser.add_argument(
-        '-n', '--new', help='Flag for brand new device, using device info in device.yml config file', dest='new', action='store_true'
+        '-n', '--new', help=('Flag for brand new device, using device info in device.yml config file.'
+            ' Be careful this flag can override current device, information may be lost.'), dest='new', action='store_true'
     )
 
-    parser.add_argument(
-        '--abp', help='Activate device in ABP mode', dest='abp', action='store_true'
-    )
+#    parser.add_argument(
+#        '--abp', help='Activate device in ABP mode', dest='abp', action='store_true'
+#    )
 
     #parser.add_argument(
     #    '-i', '--info', help='Show information of current device for debugging', dest='info', action='store_true'

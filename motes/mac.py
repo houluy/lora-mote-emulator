@@ -24,6 +24,8 @@ from Crypto.Cipher import AES
 from Crypto.Hash import CMAC
 from collections import ChainMap, namedtuple
 
+from .exceptions import *
+
 GMTformat = "%Y-%m-%d %H:%M:%S GMT"
 
 logger = logging.getLogger('main')
@@ -39,9 +41,11 @@ FCTRL_LEN = 1
 FCNT_LEN = 2
 FPORT_LEN = 1
 
-
-class MICError(ValueError):
-    pass
+def parse_bytes(typ, fmt, data):
+    try:
+        return struct.unpack(fmt, data)
+    except struct.error:
+        raise StructParseError(typ, fmt, data) from None
 
 
 class Gateway:
@@ -220,13 +224,11 @@ class Gateway:
         """
         pullack = memoryview(pullack)
         pullack_f = '<s2ss'
-        try:
-            version, token, identifier =\
-                struct.unpack(pullack_f, pullack)
-        except struct.error:
-            raise ValueError(
-                "Error format of PULL ACK data: {}".format(pullack.hex())
-            ) from None
+        version, token, identifier = parse_bytes(
+            'PULL_ACK',
+            pullack_f,
+            pullack
+        )
         logger.info(
             ('PULL ACK -\nVersion: {}, '
                 'Token: {}, '
@@ -313,7 +315,8 @@ class Gateway:
         -----------------------------------
         """
         pushack = memoryview(pushack)
-        version, token, identifier = struct.unpack(
+        version, token, identifier = parse_bytes(
+            'PUSH_ACK',
             self.pushack_f,
             pushack
         )
@@ -344,7 +347,8 @@ class Gateway:
         """
         pullresplen = len(pullresp)
         pullresp_f = self.pullresp_f + '{}s'.format(pullresplen - 4)
-        version, token, identifier, txpk = struct.unpack(
+        version, token, identifier, txpk = parse_bytes(
+            'PULL_RESP',
             pullresp_f,
             pullresp,
         )
@@ -425,6 +429,8 @@ class Mote:
         self.gen_jskeys()
         self.activation = False
         self.activation_mode = 'OTAA'
+        self.ack = False
+        self.save()
 
     def _initialize_session(self, optneg):
         """
@@ -551,9 +557,11 @@ class Mote:
         })
         mote.save()
         return mote
+
     def __repr__(self):
         basic = (f'LoRa Motes Information:\n'
             f'DevEUI: {self.deveui.hex()}\n'
+            f'JoinEUI: {self.joineui[::-1].hex()}\n'
             f'NwkKey: {self.nwkkey.hex()}\n'
             f'AppKey: {self.appkey.hex()}\n'
             f'Activation mode: {self.activation_mode}\n'
@@ -561,7 +569,6 @@ class Mote:
         extra = actv_extra = ''
         if self.activation:
             extra = (f'\nDevAddr: {self.devaddr.hex()}\n'
-                f'JoinEUI: {self.joineui[::-1].hex()}\n'
                 f'FCntUp: {self.fcntup}\n'
                 f'JSIntKey: {self.jsintkey.hex()}\n'
                 f'JSEncKey: {self.jsenckey.hex()}\n'
@@ -608,12 +615,12 @@ class Mote:
         return bytes(result)
 
 
-    def form_fctrl(self, foptslen: int, unconfirmed: bool) -> bytes:
+    def form_fctrl(self, foptslen: int, ack: bool) -> bytes:
         """
         Form FCtrl byte in FHDR
         Args:
             foptslen: Indicate the real length of FOpts field
-            unconfirmed: Whether this is an UNconfirmed data up
+            ack: Whether an ack is required to last message
         Returns:
             A bytes of FCtrl field
 
@@ -624,7 +631,7 @@ class Mote:
         |  0  |  0  |  0  |    0   |   0000   |
         ---------------------------------------
         """
-        mask = 0x0F if unconfirmed else 0x2F
+        mask = 0x2F if ack else 0x0F
         return (mask & (foptslen | 0xF0)).to_bytes(1, 'big')
 
     def parse_fctrl(self, fctrl):
@@ -647,12 +654,11 @@ class Mote:
         offset = (7, 6, 5, 4, 0)
         return self.parse_byte(fctrl, name=name, bitlength=bitlength, offset=offset)
 
-    def form_fhdr(self, fopts, unconfirmed=False, version='1.1'):
+    def form_fhdr(self, fopts, version='1.1'):
         """
         Form FHDR field
         Args:
             fopts: FOpts values, could be empty bytes
-            unconfirmed: Whether this is an UNconfirmed data up
             version: LoRaWAN version, if 1.1, then FOpts MUST be encrypted
         Returns:
             Length and bytes of FHDR field
@@ -675,8 +681,8 @@ class Mote:
                     start=0,
                 )
         fhdr_f = fhdr_f + '{}s'.format(foptslen)
-        fctrl = self.form_fctrl(foptslen, unconfirmed)
-        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcntup, fopts)
+        fctrl = self.form_fctrl(foptslen, self.ack)
+        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, self.fcntup, fopts)
 
     def parse_fhdr(self, macpld):
         """
@@ -690,7 +696,8 @@ class Mote:
         """
         const_len = DEVADDR_LEN + FCTRL_LEN + FCNT_LEN
         beforefopts_f = '<4ssH'
-        devaddr, fctrl, fcnt = struct.unpack(
+        devaddr, fctrl, fcnt = parse_bytes(
+            'FHDR',
             beforefopts_f,
             macpld[:const_len]
         )
@@ -714,7 +721,7 @@ class Mote:
         )
         return fhdrlen, macpld[:fhdrlen], fhdr_d
 
-    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0, confirmed=True):
+    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0):
         """
         Calculate the MIC field for uplink and downlink application data
         Args:
@@ -751,20 +758,18 @@ class Mote:
         msglen = len(msg)
         B_f = '<cHBBB4sIBB'
         if direction == 0:
-            #TODO: Must check Confirmed
             fcnt = self.fcntup
             key = self.fnwksintkey
-            conffcnt = 0
         else:
             key = self.snwksintkey
-            conffcnt = fcnt
+        conffcnt = fcnt if (self.ack and direction == 1) else 0
         B0_elements = [
             b'\x49',
             conffcnt,
             0,
             0,
             direction,
-            self.devaddr,
+            self.devaddr[::-1],
             fcnt,
             0,
             msglen
@@ -778,17 +783,17 @@ class Mote:
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            conffcnt = self.fcntup if confirmed else 0
+            conffcnt = fcnt if self.ack else 0
             B1_elements[1:4] = [conffcnt, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,
                 *B1_elements,
             )
             smsg = B1 + msg
-            print('key: {} {}\nmsg: {} {}'.format(key.hex(), self.snwksintkey.hex(), fmsg.hex(), smsg.hex()))
+            print('msg: B0: {} B1: {}'.format(fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
-            return fcmac.digest()[:MIC_LEN]#scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
+            return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
         else:
             return fcmac.digest()[:MIC_LEN]
 
@@ -937,7 +942,7 @@ class Mote:
                 b'\x01',
                 0,
                 direction,
-                self.devaddr,
+                self.devaddr[::-1],
                 fcnt,
                 0,
                 i
@@ -1064,7 +1069,8 @@ class Mote:
         joinacpt_f = '<3s3s4sss'
         joinacpt = memoryview(joinacpt)
         self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
-        self.joinnonce, self.homenetid, self.devaddr, self.dlsettings, self.rxdelay = struct.unpack(
+        self.joinnonce, self.homenetid, self.devaddr, self.dlsettings, self.rxdelay = parse_bytes(
+            'Join Accept MACPayload',
             joinacpt_f,
             joinacpt[:JOINACPT_CFLIST_OFFSET]
         )
@@ -1074,13 +1080,13 @@ class Mote:
             joinacpt_mic_key = self.jsintkey
         else:
             joinacpt_mic_key = self.nwkkey
-        vmic = self.calcmic_join(
+        cmic = self.calcmic_join(
             key=joinacpt_mic_key,
             macpld=mhdr.tobytes() + joinacpt.tobytes(),
             optneg=optneg,
             #typ='joinacpt' + str(optneg)
         )
-        if (vmic == mic):
+        if (cmic == mic):
             logger.info(
                 ('Join Accept (MIC verified) -\n'
                     'Original data: {}\n'
@@ -1100,10 +1106,7 @@ class Mote:
 
             self._initialize_session(optneg)
         else:
-            raise MICError('MIC mismatches:\n'
-                'Received MIC: {}\n'
-                'Calculated MIC: {}'.format(mic, vmic)
-            )
+            raise MICError('Join Accept', mic, cmic)
 
     def parse_dlsettings(self, dlsettings):
         """
@@ -1161,7 +1164,7 @@ class Mote:
             msglen = len(phypld)
             pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
             pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
-            macpld, mic = struct.unpack(pullresp_f, macpldmic)
+            macpld, mic = parse_bytes('Join Accept PHYPayload', pullresp_f, macpldmic)
             self.parse_joinacpt(mhdr, macpld, mic)
         else:  # PULL RESP for app phypayload
             macpld = phypld[MHDR_LEN:-MIC_LEN]
@@ -1189,6 +1192,7 @@ class Mote:
         """
         macpld = memoryview(macpld)
         confirmed = True if mtype == 5 else False
+        self.ack = confirmed
         fhdrlen, fhdr, fhdr_d = self.parse_fhdr(macpld)
         fcntdown = fhdr_d.get('fcnt')
         fport = macpld[fhdrlen]
@@ -1198,16 +1202,15 @@ class Mote:
         else:
             key = self.appskey
         #TODO: The LoRaWAN version
-        vmic = self.calcmic_app(
+        cmic = self.calcmic_app(
             mhdr,
             direction=1,
             fcnt=fcntdown,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld.tobytes(),
-            confirmed=confirmed
         )
-        if (vmic == mic):
+        if (cmic == mic):
             frmpld = self.encrypt(
                 key,
                 frmpld.tobytes(),
@@ -1215,7 +1218,7 @@ class Mote:
                 fcnt=fcntdown # This arg must be provided
             )
             logger.info(
-                ('Downlink MACPayload, Important Info:\n'
+                ('Downlink MACPayload (MIC verified), Important Info:\n'
                     '\tFHDR dict: {}, '
                     '\tFCntDown: {},'
                     '\tFPort: {}, '
@@ -1225,7 +1228,7 @@ class Mote:
                         frmpld.hex(),
                     ))
         else:
-            raise MICError('MIC of MACPayload mismatches')
+            raise MICError('MACPayload', mic, cmic)
         
     def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False, version='1.1'):
         """
@@ -1239,15 +1242,13 @@ class Mote:
         Returns:
             bytes of final application data
         Exceptions:
-            ValueError: FOpts MUST be empty if FPort is zero
+            FOptsError: FOpts MUST be empty if FPort is zero
         """
         if unconfirmed:
             mhdr = b'\x40'
         else:
             mhdr = b'\x80'
-        if fport == 0 and fopts:
-            raise ValueError('Cannot set FPort and FOpts in one same frame')
-        fhdrlen, fhdr = self.form_fhdr(fopts, unconfirmed, version)
+        fhdrlen, fhdr = self.form_fhdr(fopts, version)
         frmpldlen = len(frmpld)
         phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
@@ -1268,9 +1269,9 @@ class Mote:
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
-            confirmed=(not unconfirmed)
         )
         self.fcntup += 1
+        self.ack = False
         self.save()
         logger.info(
             ('Uplink application data -\n'

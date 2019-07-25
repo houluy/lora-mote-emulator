@@ -8,17 +8,15 @@ import json
 import logging
 import socket
 import random
-import sys
+import shutil
+import pathlib
 
 import yaml
 
 from motes import mac, network
 from motes.cli import define_parser
-from motes.config import load_config, parse_config
-
-
-class NewDeviceError(FileNotFoundError):
-    pass
+from motes.config import Config, load_config, parse_config
+from motes.exceptions import *
 
 
 def init(args):
@@ -28,14 +26,14 @@ def init(args):
         args: Command line arguments
     """
     
-    original_file = 'config/device.yml'
-    abp_file = 'config/abp.yml'
-    device_file = 'models/device.pkl'
+    original_file = pathlib.Path('config/device.yml')
+    abp_file = pathlib.Path('config/abp.yml')
+    device_file = pathlib.Path('models/device.pkl')
 
     with open(original_file) as f:
-        device_conf = parse_config(yaml.load(f, Loader=yaml.FullLoader))
+        device_conf = parse_config(yaml.load(f, Loader=yaml.FullLoader), Config())
 
-    if args.abp:
+    if args.type == 'abp':
         with open(abp_file) as f:
             abp_conf = yaml.load(f, Loader=yaml.FullLoader)
         mote = mac.Mote.abp(**abp_conf)
@@ -75,10 +73,17 @@ def main():
             gateway.pull(udp_client)
         elif args.type == 'info':
             print(mote)
+        elif args.type == 'abp':
+            logger.info('Device successfully been setup in ABP mode')
+            print(mote)
         else:
             if args.type == 'join':
+                if mote.activation_mode == 'ABP':
+                    raise ActivationError(f'ABP device cannot issue {args.type} request')
                 phypld = mote.form_join()
             elif args.type == 'rejoin':
+                if mote.activation_mode == 'ABP':
+                    raise ActivationError(f'ABP device cannot issue {args.type} request')
                 phypld = mote.form_rejoin(args.rejointyp)
             elif args.type == 'app':
                 fopts = bytes.fromhex(args.fopts) if args.fopts else b''
@@ -92,20 +97,17 @@ def main():
                 raise NotImplementedError
             gateway.push(udp_client, phypld, mote, args.unconfirmed)
     except socket.timeout as e:
-        logger.exception('Socket Timeout, remote server is unreachable')
+        logger.error('Socket Timeout, remote server is unreachable')
     except AttributeError as e:
-        logger.exception('You need to finish Join procedure before sending application data')
-    except mac.MICError as e:
+        logger.error('You need to finish Join procedure before sending application data')
         logger.exception(e)
-    except ValueError as e:
-        logger.exception(e)
-    except NotImplementedError as e:
-        logger.exception(e)
-    except NewDeviceError as e:
-        logger.exception(e)
-    except yaml.scanner.ScannerError as e:
-        logger.exception('Bad config file format, please copy a new file from template')
-    except Exception as e:
+    except (MICError, StructParseError, FOptsError, NewDeviceError, ActivationError) as e:
         logger.error(e)
+    except NotImplementedError as e:
+        logger.error(e)
+    except yaml.scanner.ScannerError as e:
+        logger.error('Bad config file format, please copy a new file from template')
+    except Exception as e:
+        logger.exception(e)
 
 main()

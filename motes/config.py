@@ -3,6 +3,7 @@ import logging
 from functools import partial
 from collections.abc import MutableMapping
 
+
 class Config:
     def add(self, **kwargs):
         self.__dict__.update(kwargs)
@@ -14,12 +15,10 @@ class Config:
 def parse_config(config, target):
     for key, value in config.items():
         if isinstance(value, MutableMapping):
-            target.__dict__[key] = parse_config(value)
+            target.__dict__[key] = parse_config(value, Config())
         else:
             target.add(**{key: value})
     return target
-
-parse_config = partial(parse_config, target=Config())
 
 def load_config(configfile='config/config.yml'):
     """
@@ -31,7 +30,7 @@ def load_config(configfile='config/config.yml'):
     """
     logger = logging.getLogger('main')
     with open(configfile, 'r') as f:
-        config = parse_config(yaml.load(f, Loader=yaml.FullLoader))
+        config = parse_config(yaml.load(f, Loader=yaml.FullLoader), Config())
     log_level = {
         'notset': 0,
         'debug': 10,
@@ -42,3 +41,7 @@ def load_config(configfile='config/config.yml'):
     }
     logger.setLevel(log_level[config.level.lower()])
     return config
+
+if __name__ == '__main__':
+    config = {'dest': {'hostname': 'localhost', 'port': 1700}, 'src': {'hostname': 'localhost', 'port': 1701}, 'level': 'debug'}
+    c = parse_config(config)
