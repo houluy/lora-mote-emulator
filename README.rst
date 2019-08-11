@@ -50,6 +50,7 @@ Here, if there is not Python 3.6 in your system, a warning will occur, and no pa
     python main.py -h
 
   Full help message ::
+
 	usage: main.py [-h] [-v version] [-m MSG] [-f FOPTS] [-c CMD] [-u] [-n]
 				   [-r {0,1,2}]
 				   type
@@ -83,6 +84,7 @@ OTAA
 ****
 
 - Modify device infomation in ``device.yml`` you just copied. An example: ::
+
 		Device:
 			JoinEUI: 0000000000000000
 			DevEUI: 0000000000000000
@@ -98,6 +100,7 @@ ABP
 ***
 
 - Modify device activation information in ``abp.yml``. An example: ::
+
 		deveui: 91fc1bb684bf2ed6
 		joineui: '0000000000000000'
 		devaddr: 01c11aee
