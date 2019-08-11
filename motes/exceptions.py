@@ -1,4 +1,5 @@
 import struct
+import socket
 
 
 class NewDeviceError(FileNotFoundError):
@@ -51,4 +52,8 @@ class FOptsError(ValueError):
     pass
 
 
-del struct
+class NoResponseError(socket.timeout):
+    pass
+
+
+del struct, socket

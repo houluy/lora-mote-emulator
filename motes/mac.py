@@ -17,6 +17,7 @@ import pickle
 import random
 import secrets
 import struct
+import socket
 import time
 import pathlib
 
@@ -277,7 +278,7 @@ class Gateway:
             payload,
         ])
 
-    def push(self, transmitter, data, mote, unconfirmed=False):
+    def push(self, transmitter, data, mote):
         """
         Sending PUSH_DATA from gateway to server.
         Args:
@@ -291,13 +292,14 @@ class Gateway:
         transmitter.send(self.form_pshdat(data, mote))
         pushack = transmitter.recv()
         self.parse_pushack(pushack[0])
-        if not unconfirmed:
+        try:
             pullresp = transmitter.recv()
-            self.parse_pullresp(pullresp[0], mote)
-        else:
+        except socket.timeout as e:
             logger.info(
-                ('This is an unconfirmed data up, therefore, no donwlink data will be received')
+                ('No response is received from remote servers')
             )
+        else:
+            self.parse_pullresp(pullresp[0], mote)
 
     def parse_pushack(self, pushack):
         """
@@ -790,7 +792,7 @@ class Mote:
                 *B1_elements,
             )
             smsg = B1 + msg
-            print('msg: B0: {} B1: {}'.format(fmsg.hex(), smsg.hex()))
+            print('msg: \nB0: {} \nB1: {}'.format(fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
             return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]

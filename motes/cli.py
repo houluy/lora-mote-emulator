@@ -25,7 +25,7 @@ def define_parser():
     )
 
     parser.add_argument(
-        '-m', help='FRMPayload in string', dest='msg'
+        '-m', help='FRMPayload in string', dest='msg', default=''
     )
 
     parser.add_argument(
@@ -48,10 +48,10 @@ def define_parser():
 #    parser.add_argument(
 #        '--abp', help='Activate device in ABP mode', dest='abp', action='store_true'
 #    )
-
-    #parser.add_argument(
-    #    '-i', '--info', help='Show information of current device for debugging', dest='info', action='store_true'
-    #)
+#
+#    parser.add_argument(
+#        '-i', '--info', help='Show information of current device for debugging', dest='info', action='store_true'
+#    )
 
     parser.add_argument(
         '-r',

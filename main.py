@@ -56,7 +56,7 @@ def init(args):
     local = (config.src.hostname, config.src.port)
     gweui = device_conf.Gateway.GatewayEUI
     gateway = mac.Gateway(gweui)
-    udp_client = network.UDPClient(target, address=local)
+    udp_client = network.UDPClient(target, address=local, timeout=config.timeout)
     return gateway, udp_client, mote
 
 
@@ -95,7 +95,7 @@ def main():
                 phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
             else:
                 raise NotImplementedError
-            gateway.push(udp_client, phypld, mote, args.unconfirmed)
+            gateway.push(udp_client, phypld, mote)
     except socket.timeout as e:
         logger.error('Socket Timeout, remote server is unreachable')
     except AttributeError as e:
