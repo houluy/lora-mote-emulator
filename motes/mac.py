@@ -101,10 +101,12 @@ class Gateway:
         return {
             "stat": {
                 "time": time.strftime(GMTformat, time.localtime()),
+                "lati": 39.9075,
+                "long": 116.38806,
                 "rxnb": 1,
                 "rxok": 0,
                 "rxfw": 0,
-                "ackr": 100,
+                "ackr": 0,
                 "dwnb": 0,
                 "txnb": 0,
             }
@@ -122,8 +124,8 @@ class Gateway:
             'rxpk': [{
                 "tmst": int(time.time()),
                 "chan": mote.txch,
-                "rfch": 0,
-                "freq": 435.9,
+                "rfch": mote.txch,
+                "freq": 779.5,
                 "stat": 1,
                 "modu": 'LORA',
                 "datr": self.txdr2datr[mote.txdr],
@@ -425,7 +427,7 @@ class Mote:
         self.appkey, self.nwkkey = bytes.fromhex(appkey), bytes.fromhex(nwkkey)
         self.conffile = pathlib.Path(conffile)
         self.txdr = 5 # Uplink data rate index
-        self.txch = 7 # Channel index
+        self.txch = 2 # Channel index
         self.rjcount1 = 0 # Rejoin type 1 counter
 
         self.gen_jskeys()
