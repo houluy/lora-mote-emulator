@@ -5,7 +5,7 @@ def define_parser():
         description='Tool for test on LoRaWAN server'
     )
 
-    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp']
+    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp', 'reset']
 
     parser.add_argument(
         'type',
