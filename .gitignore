@@ -1,4 +1,5 @@
-config/config.yml
+config/*.yml
 config/device.json
 *.pyc
 models/*
+lorawan/

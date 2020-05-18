@@ -9,6 +9,8 @@ Welcome to lora-motes-emulator's documentation!
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   tutorials
+   
 
 
 
