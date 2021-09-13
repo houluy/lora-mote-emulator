@@ -7,9 +7,11 @@ Welcome to lora-motes-emulator's documentation!
 ===============================================
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
-   tutorials
+    :maxdepth: 2
+    
+    chirpstack
+
+
    
 
 
@@ -19,4 +21,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-* :ref:`tutorials`

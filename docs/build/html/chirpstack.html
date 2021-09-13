@@ -14,6 +14,7 @@
     <script type="text/javascript" src="_static/language_data.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Welcome to lora-motes-emulator’s documentation!" href="index.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -44,19 +45,25 @@
 <li><p>Create <code class="docutils literal notranslate"><span class="pre">Device-profiles</span></code>.</p></li>
 <li><p>Register a gateway, and fill in a Gateway EUI.</p></li>
 <li><p>Create an application, select a service profile.</p></li>
-<li><p>Click the application name, and create a device belongs to the application.
-* Fill in a Device EUI,
-* Choose a device profile,
-* Optional: uncheck the frame-counter validation for convenient test.</p></li>
-<li><p>After click the CREATE DEVICE button, <code class="docutils literal notranslate"><span class="pre">NwkKey</span></code> and <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> need to be filled (For <strong>LoRaWAN 1.0.2</strong>, only <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> is needed), then the configuration of ChirpStack server is completed.</p></li>
-<li><p>Now, we can use lora-motes-emulator to issue join request in OTAA mode. (This part is also shown in README.rst)
-* Prepare the config files.</p>
-<blockquote>
-<div><p># For <strong>LoRaWAN 1.0.2</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device102.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>, for <strong>LoRaWAN 1.1</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>.
-# Modify the <code class="docutils literal notranslate"><span class="pre">device.yml</span></code> file and fill in the information according to the register information at step 8.
-# Copy the <code class="docutils literal notranslate"><span class="pre">config/config.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/config.yml</span></code>, fill in the IP and port information of ChirpStack server (Default port number is 1700).</p>
-</div></blockquote>
+<li><p>Click the application name, and create a device belongs to the application.</p>
 <ul class="simple">
+<li><p>Fill in a Device EUI,</p></li>
+<li><p>Choose a device profile,</p></li>
+<li><p>Optional: uncheck the frame-counter validation for convenient test.</p></li>
+</ul>
+</li>
+<li><p>After click the CREATE DEVICE button, <code class="docutils literal notranslate"><span class="pre">NwkKey</span></code> and <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> need to be filled (For <strong>LoRaWAN 1.0.2</strong>, only <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> is needed), then the configuration of ChirpStack server is completed.</p></li>
+<li><p>Now, we can use lora-motes-emulator to issue join request in OTAA mode. (This part is also shown in README.rst)</p>
+<ul>
+<li><p>Prepare the config files.</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>For <strong>LoRaWAN 1.0.2</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device102.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>, for <strong>LoRaWAN 1.1</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>.</p></li>
+<li><p>Modify the <code class="docutils literal notranslate"><span class="pre">device.yml</span></code> file and fill in the information according to the register information at step 8.</p></li>
+<li><p>Copy the <code class="docutils literal notranslate"><span class="pre">config/config.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/config.yml</span></code>, fill in the IP and port information of ChirpStack server (Default port number is 1700).</p></li>
+</ul>
+</div></blockquote>
+</li>
 <li><p>Start the <code class="docutils literal notranslate"><span class="pre">pipenv</span></code> environment by <code class="docutils literal notranslate"><span class="pre">pipenv</span> <span class="pre">shell</span></code>.</p></li>
 <li><p>Send a <strong>PULL_DATA</strong> to ChirpStack server by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">pull</span></code>.</p></li>
 <li><p>Send a <strong>join request message</strong> to ChirpStack server by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">join</span></code>.</p></li>
@@ -64,8 +71,11 @@
 <li><p>An <strong>Uplink message</strong> can be sent by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">app</span> <span class="pre">-m</span> <span class="pre">YOUR_MESSAGE</span></code>, which can also combine with MAC command by option <code class="docutils literal notranslate"><span class="pre">-f</span> <span class="pre">MAC_COMMAND_ID</span></code>.</p></li>
 </ul>
 </li>
-<li><p>Key Points:
-* The <strong>Uplink data rate index</strong> and the <strong>Channel index</strong> is required to calculate the MIC field (B1 message) in version 1.1.</p></li>
+<li><p>Key Points:</p>
+<ul class="simple">
+<li><p>The <strong>Uplink data rate index</strong> and the <strong>Channel index</strong> is required to calculate the MIC field (B1 message) in version 1.1.</p></li>
+</ul>
+</li>
 </ol>
 </div>
 
@@ -86,11 +96,15 @@
 
 
 <h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Use ChirpStack as LoRa Server</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>
 <ul>
   <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Welcome to lora-motes-emulator’s documentation!</a></li>
   </ul></li>
 </ul>
 </div>
@@ -124,7 +138,7 @@
       &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
       
       |
-      <a href="_sources/tutorials.rst.txt"
+      <a href="_sources/chirpstack.rst.txt"
           rel="nofollow">Page source</a>
     </div>
 
