@@ -219,15 +219,15 @@ class Gateway:
             None
 
         PULL_ACK:
-        -------------------------------------
-        |   Version    | Token | Identifier |
-        -------------------------------------
-        | 0x00 or 0x01 |2 bytes|    0x04    |
-        -------------------------------------
+        --------------------------------------------------
+        |   Version    | Token | Identifier | GatewayEUI |
+        --------------------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x04    |   8 bytes  |
+        --------------------------------------------------
         """
         pullack = memoryview(pullack)
-        pullack_f = '<s2ss'
-        version, token, identifier = parse_bytes(
+        pullack_f = '<s2ss8s'
+        version, token, identifier, gatewayeui = parse_bytes(
             'PULL_ACK',
             pullack_f,
             pullack
@@ -240,6 +240,7 @@ class Gateway:
                     version.hex(),
                     token.hex(),
                     identifier.hex(),
+                    gatewayeui.hex(),
                 ))
 
     def form_pshdat(self, data, mote):
