@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """LoRa Motes Emulator
 
 This is the main script of the emulator.
@@ -19,7 +21,20 @@ from motes.config import Config, load_config, parse_config
 from motes.exceptions import *
 
 
-def init(args):
+def init_gateway():
+    config = load_config()
+    target = (config.dest.hostname, config.dest.port)
+    local = (config.src.hostname, config.src.port)
+    gateway_file = pathlib.Path('config/gateway.yml')
+    with open(gateway_file) as f:
+        gateway_conf = yaml.load(f, Loader=yaml.FullLoader)
+    gweui = gateway_conf.get('GatewayEUI')
+    gateway = mac.Gateway(gweui)
+    udp_client = network.UDPClient(target, address=local, timeout=config.timeout)
+    return gateway, udp_client
+
+
+def init_mote(args):
     """
     Initialization
     Args:
@@ -51,13 +66,7 @@ def init(args):
             except FileNotFoundError:
                 raise NewDeviceError('No device found, please use -n flag to create brand new device\n'
                     'or use abp command to activate new device by ABP') from None
-    config = load_config()
-    target = (config.dest.hostname, config.dest.port)
-    local = (config.src.hostname, config.src.port)
-    gweui = device_conf.Gateway.GatewayEUI
-    gateway = mac.Gateway(gweui)
-    udp_client = network.UDPClient(target, address=local, timeout=config.timeout)
-    return gateway, udp_client, mote
+    return mote
 
 
 def main():
@@ -68,37 +77,40 @@ def main():
     logger = logging.getLogger('main')
     try:
         args = define_parser().parse_args()
-        gateway, udp_client, mote = init(args)
+        gateway, udp_client = init_gateway()
         if args.type == 'pull':
             gateway.pull(udp_client)
-        elif args.type == 'info':
-            print(mote)
-        elif args.type == 'abp':
-            logger.info('Device successfully been setup in ABP mode')
-            print(mote)
         else:
-            if args.type == 'join':
-                if mote.activation_mode == 'ABP':
-                    raise ActivationError(f'ABP device cannot issue {args.type} request')
-                phypld = mote.form_join()
-                print(f"phypld: {phypld}")
-            elif args.type == 'rejoin':
-                if mote.activation_mode == 'ABP':
-                    raise ActivationError(f'ABP device cannot issue {args.type} request')
-                phypld = mote.form_rejoin(args.rejointyp)
-            elif args.type == 'app':
-                fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-                fport = random.randint(1, 255)
-                msg = args.msg.encode()
-                phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed)
-            elif args.type == 'cmd':
-                fport = 0
-                phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
+            mote = init_mote(args)
+            if args.type == 'info':
+                print(mote)
+            elif args.type == 'reset':
+                mote.reset()
+                logger.info('Device is reset')
+                print(mote)
+            elif args.type == 'abp':
+                logger.info('Device successfully been setup in ABP mode')
+                print(mote)
             else:
-                raise NotImplementedError
-            gateway.push(udp_client, phypld, mote)
-
-
+                if args.type == 'join':
+                    if mote.activation_mode == 'ABP':
+                        raise ActivationError(f'ABP device cannot issue {args.type} request')
+                    phypld = mote.form_join()
+                elif args.type == 'rejoin':
+                    if mote.activation_mode == 'ABP':
+                        raise ActivationError(f'ABP device cannot issue {args.type} request')
+                    phypld = mote.form_rejoin(args.rejointyp)
+                elif args.type == 'app':
+                    fopts = bytes.fromhex(args.fopts) if args.fopts else b''
+                    fport = random.randint(1, 255)
+                    msg = args.msg.encode()
+                    phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed)
+                elif args.type == 'cmd':
+                    fport = 0
+                    phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
+                else:
+                    raise NotImplementedError
+                gateway.push(udp_client, phypld, mote)
     except socket.timeout as e:
         logger.error('Socket Timeout, remote server is unreachable')
     except AttributeError as e:

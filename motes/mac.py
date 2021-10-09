@@ -220,15 +220,15 @@ class Gateway:
             None
 
         PULL_ACK:
-        -------------------------------------
-        |   Version    | Token | Identifier |
-        -------------------------------------
-        | 0x00 or 0x01 |2 bytes|    0x04    |
-        -------------------------------------
+        --------------------------------------------------
+        |   Version    | Token | Identifier | GatewayEUI |
+        --------------------------------------------------
+        | 0x00 or 0x01 |2 bytes|    0x04    |   8 bytes  |
+        --------------------------------------------------
         """
         pullack = memoryview(pullack)
-        pullack_f = '<s2ss'
-        version, token, identifier = parse_bytes(
+        pullack_f = '<s2ss8s'
+        version, token, identifier, gatewayeui = parse_bytes(
             'PULL_ACK',
             pullack_f,
             pullack
@@ -241,6 +241,7 @@ class Gateway:
                     version.hex(),
                     token.hex(),
                     identifier.hex(),
+                    gatewayeui.hex(),
                 ))
 
     def form_pshdat(self, data, mote):
@@ -435,6 +436,8 @@ class Mote:
         self.activation = False
         self.activation_mode = 'OTAA'
         self.ack = False
+        self.version = "1.1"
+        self.msg_file = "message.json"
         self.save()
 
     def _initialize_session(self, optneg):
@@ -473,7 +476,7 @@ class Mote:
 
             appsmsg = b''.join([
                 b'\x02',
-                self.joinnonce,
+                self.joinnonce[::-1],
                 self.joineui[::-1],
                 self.devnonce[::-1],
             ]).ljust(AES_BLOCK, b'\x00')
@@ -482,8 +485,8 @@ class Mote:
         else:
             # Server only supports LoRaWAN 1.0
             sesskey_prefix = b''.join([
-                self.joinnonce,
-                self.homenetid,
+                self.joinnonce[::-1],
+                self.homenetid[::-1],
                 self.devnonce[::-1],
             ])
             apps_msg, fnwksint_msg = [
@@ -583,7 +586,7 @@ class Mote:
     def __repr__(self):
         basic = (f'LoRa Motes Information:\n'
             f'DevEUI: {self.deveui.hex()}\n'
-            f'JoinEUI: {self.joineui[::-1].hex()}\n'
+            f'JoinEUI: {self.joineui.hex()}\n'
             f'NwkKey: {self.nwkkey.hex()}\n'
             f'AppKey: {self.appkey.hex()}\n'
             f'Activation mode: {self.activation_mode}\n'
@@ -601,7 +604,7 @@ class Mote:
             )
             if self.activation_mode == 'OTAA':
                 actv_extra = (
-                    f'JoinNonce: {self.joinnonce[::-1].hex()}\n'
+                    f'JoinNonce: {self.joinnonce.hex()}\n'
                     f'DevNonce: {self.devnonce.hex()}\n'
                 )
         return basic + extra + actv_extra
@@ -817,7 +820,7 @@ class Mote:
                 *B1_elements,
             )
             smsg = B1 + msg
-            print('msg: \nB0: {} \nB1: {}'.format(fmsg.hex(), smsg.hex()))
+            #print('msg: \nB0: {} \nB1: {}'.format(fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
             return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
@@ -1154,11 +1157,9 @@ class Mote:
             joinacpt_f,
             joinacpt[:JOINACPT_CFLIST_OFFSET]
         )
-        #self.joinnonce = self.prejoinnonce[::-1]
-        #self.devaddr = self.predevaddr[::-1]
-        #print('joinnonce: ', self.joinnonce)
-        #print('devaddr: ', self.devaddr)
-
+        self.devaddr = self.devaddr[::-1]
+        self.joinnonce = self.joinnonce[::-1]
+        self.homenetid = self.homenetid[::-1]
         # Check OptNeg flag in DLSettings
         optneg, self.rx1droffset, self.rx2dr = self.parse_dlsettings(self.dlsettings)
         if optneg:
@@ -1330,7 +1331,7 @@ class Mote:
         else:
             raise MICError('MACPayload', mic, cmic)
         
-    def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False, version='1.1'):
+    def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False):
         """
         Form the MACPayload of normal application data
         Args:
@@ -1348,7 +1349,7 @@ class Mote:
             mhdr = b'\x40'
         else:
             mhdr = b'\x80'
-        fhdrlen, fhdr = self.form_fhdr(fopts, version)
+        fhdrlen, fhdr = self.form_fhdr(fopts, self.version)
         frmpldlen = len(frmpld)
         phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
@@ -1442,14 +1443,10 @@ class Mote:
             self.deveui,
             rjcount,
         )
-        print('----------- form rejoin mic & rjmsg ----------')
-        print(mickey)
-        print(rjmsg)
         mic = self.calcmic_join(
             key=mickey,
             macpld=rjmsg,
         )
-        print(rjmsg)
         logger.info(
             ('Rejoin request -\n'
                 'Type: {}, '
@@ -1464,4 +1461,19 @@ class Mote:
             macpld_f,
             rjmsg,
             mic,
-            )
+        )
+
+    def reset(self):
+        self.fcntup = 0
+        self.fcntdown = 0
+        self.fcnt = 0
+
+    def message_from_file(self):
+        try:
+            f = open(self.msg_file, 'r')
+        except FileNotFoundError:
+            self.logger.error('"message.json" file not found')
+        else:
+            obj = json.load(f)
+        finally:
+            f.close()

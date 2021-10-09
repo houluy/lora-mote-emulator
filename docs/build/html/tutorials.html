@@ -1,0 +1,135 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>Use ChirpStack as LoRa Server &#8212; lora-motes-emulator  documentation</title>
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="use-chirpstack-as-lora-server">
+<h1>Use ChirpStack as LoRa Server<a class="headerlink" href="#use-chirpstack-as-lora-server" title="Permalink to this headline">¶</a></h1>
+<p>Please refer to the official website for more information. <a class="reference external" href="https://www.chirpstack.io/guides/docker-compose/">https://www.chirpstack.io/guides/docker-compose/</a></p>
+<ol class="arabic">
+<li><p>Install <code class="docutils literal notranslate"><span class="pre">docker</span></code>.</p></li>
+<li><p>Clone the repo <code class="docutils literal notranslate"><span class="pre">https://github.com/brocaar/chirpstack-docker.git</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">docker-compose</span> <span class="pre">up</span></code>.</p></li>
+<li><p>Open a browser, visit the default application server <code class="docutils literal notranslate"><span class="pre">https://localhost:8080</span></code>.</p></li>
+<li><p>Login with default username and password, both are <code class="docutils literal notranslate"><span class="pre">admin</span></code>.</p></li>
+<li><p>Setup a network-server. The default is <code class="docutils literal notranslate"><span class="pre">chirpstack-network-server:8000</span></code>.</p></li>
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">Service-profiles</span></code>.</p></li>
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">Device-profiles</span></code>.</p></li>
+<li><p>Register a gateway, and fill in a Gateway EUI.</p></li>
+<li><p>Create an application, select a service profile.</p></li>
+<li><p>Click the application name, and create a device belongs to the application.
+* Fill in a Device EUI,
+* Choose a device profile,
+* Optional: uncheck the frame-counter validation for convenient test.</p></li>
+<li><p>After click the CREATE DEVICE button, <code class="docutils literal notranslate"><span class="pre">NwkKey</span></code> and <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> need to be filled (For <strong>LoRaWAN 1.0.2</strong>, only <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> is needed), then the configuration of ChirpStack server is completed.</p></li>
+<li><p>Now, we can use lora-motes-emulator to issue join request in OTAA mode. (This part is also shown in README.rst)
+* Prepare the config files.</p>
+<blockquote>
+<div><p># For <strong>LoRaWAN 1.0.2</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device102.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>, for <strong>LoRaWAN 1.1</strong>, copy the template file <code class="docutils literal notranslate"><span class="pre">config/device.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/device.yml</span></code>.
+# Modify the <code class="docutils literal notranslate"><span class="pre">device.yml</span></code> file and fill in the information according to the register information at step 8.
+# Copy the <code class="docutils literal notranslate"><span class="pre">config/config.yml.tpl</span></code> as <code class="docutils literal notranslate"><span class="pre">config/config.yml</span></code>, fill in the IP and port information of ChirpStack server (Default port number is 1700).</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>Start the <code class="docutils literal notranslate"><span class="pre">pipenv</span></code> environment by <code class="docutils literal notranslate"><span class="pre">pipenv</span> <span class="pre">shell</span></code>.</p></li>
+<li><p>Send a <strong>PULL_DATA</strong> to ChirpStack server by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">pull</span></code>.</p></li>
+<li><p>Send a <strong>join request message</strong> to ChirpStack server by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">join</span></code>.</p></li>
+<li><p>If the <strong>join accept message</strong> is decoded successfully, we can check the device information by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">info</span></code>.</p></li>
+<li><p>An <strong>Uplink message</strong> can be sent by <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span> <span class="pre">app</span> <span class="pre">-m</span> <span class="pre">YOUR_MESSAGE</span></code>, which can also combine with MAC command by option <code class="docutils literal notranslate"><span class="pre">-f</span> <span class="pre">MAC_COMMAND_ID</span></code>.</p></li>
+</ul>
+</li>
+<li><p>Key Points:
+* The <strong>Uplink data rate index</strong> and the <strong>Channel index</strong> is required to calculate the MIC field (B1 message) in version 1.1.</p></li>
+</ol>
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">lora-motes-emulator</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2019, houlu.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.1.2</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/tutorials.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
