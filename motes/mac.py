@@ -9,6 +9,7 @@ Class:
     Mote: Emulation of LoRaWAN end devices
 """
 
+import pdb
 import base64
 import json
 import logging
@@ -125,7 +126,7 @@ class Gateway:
                 "tmst": int(time.time()),
                 "chan": mote.txch,
                 "rfch": mote.txch,
-                "freq": 779.5,
+                "freq": 868.3,
                 "stat": 1,
                 "modu": 'LORA',
                 "datr": self.txdr2datr[mote.txdr],
@@ -427,7 +428,7 @@ class Mote:
         self.appkey, self.nwkkey = bytes.fromhex(appkey), bytes.fromhex(nwkkey)
         self.conffile = pathlib.Path(conffile)
         self.txdr = 5 # Uplink data rate index
-        self.txch = 2 # Channel index
+        self.txch = 1 # Channel index
         self.rjcount1 = 0 # Rejoin type 1 counter
 
         self.gen_jskeys()
@@ -447,11 +448,18 @@ class Mote:
         if optneg:
             # Server supports LoRaWAN 1.1 and later
             # Generate FNwkSIntKey, SNwkSIntKey, NwkSEncKey and AppSKey
-            nwkskey_prefix = b''.join([
-                self.joinnonce,
-                self.joineui[::-1],
-                self.devnonce[::-1],
-            ])
+            if self.joinreqtyp == b'\xFF':
+                nwkskey_prefix = b''.join([
+                    self.joinnonce[::-1],
+                    self.joineui[::-1],
+                    self.devnonce[::-1],
+                ])
+            else:
+                nwkskey_prefix = b''.join([
+                    self.joinnonce,
+                    self.joineui,
+                    bytes(2),
+                ])
             fnwksint_msg, snwksint_msg, nwksenc_msg = [
                 (prefix + nwkskey_prefix).ljust(AES_BLOCK, b'\x00')
                 for prefix in (b'\x01', b'\x03', b'\x04')
@@ -459,6 +467,10 @@ class Mote:
             self.fnwksintkey, self.snwksintkey, self.nwksenckey = self.gen_keys(
                 self.nwkkey, (fnwksint_msg, snwksint_msg, nwksenc_msg)
             )
+            print('fnwksintkey: ', self.fnwksintkey.hex())
+            print('snwksintkey: ', self.snwksintkey.hex())
+            print('nwksenckey: ', self.nwksenckey.hex())
+
             appsmsg = b''.join([
                 b'\x02',
                 self.joinnonce,
@@ -466,6 +478,7 @@ class Mote:
                 self.devnonce[::-1],
             ]).ljust(AES_BLOCK, b'\x00')
             self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
+            print('appskey: ', self.appskey.hex())
         else:
             # Server only supports LoRaWAN 1.0
             sesskey_prefix = b''.join([
@@ -479,6 +492,10 @@ class Mote:
             ]
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
+            print('snwksintkey: ', self.snwksintkey.hex())
+            print('fnwksintkey: ', self.fnwksintkey.hex())
+            print('nwksenckey: ', self.nwksenckey.hex())
+            print('appskey: ', self.appskey.hex())
         self.fcntup = self.rjcount0 = 0
         self.activation = True
         self.save()
@@ -527,6 +544,7 @@ class Mote:
         finally:
             with open(self.conffile, 'wb') as f:
                 pickle.dump(self, f)
+
 
     @classmethod
     def abp(cls, **kwargs):
@@ -597,6 +615,7 @@ class Mote:
         |    1 byte   | 8 bytes|  -  |
         ------------------------------
         """
+        print(b'\x06' + self.deveui[::-1])
         jsintkeymsg, jsenckeymsg = [
             (prefix + self.deveui[::-1]).ljust(AES_BLOCK, b'\x00') 
             for prefix in (b'\x06', b'\x05')
@@ -766,6 +785,7 @@ class Mote:
             key = self.fnwksintkey
         else:
             key = self.snwksintkey
+        #conffcnt = fcnt if (direction == 1) else 0
         conffcnt = fcnt if (self.ack and direction == 1) else 0
         B0_elements = [
             b'\x49',
@@ -783,11 +803,14 @@ class Mote:
             *B0_elements,
         )
         fmsg = B0 + msg
+        print("B0 is:")
+        print(fmsg)
         fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
             B1_elements = B0_elements[:]
-            conffcnt = fcnt if self.ack else 0
+            #conffcnt = fcnt if self.ack else 0
+            conffcnt = fcnt
             B1_elements[1:4] = [conffcnt, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,
@@ -881,14 +904,55 @@ class Mote:
         #    f,
         #    *map(form_fields, joinmic_field.field_name)
         #)
+        
+        #if optneg:
+        #    if self.joinreqtyp == b'\xFF':
+        #        print('join request')
+        #        acptopt_f = '<s8s2ss3s3s4sss'
+        #        macpld = struct.pack(
+        #            acptopt_f,
+        #            self.joinreqtyp,
+        #            self.joineui[::-1],
+        #            self.devnonce[::-1],
+        #            macpld,
+        #            self.prejoinnonce,
+        #            self.homenetid,
+        #            self.predevaddr,
+        #            self.dlsettings,
+        #            self.rxdelay
+        #        )
+        #    else: 
+        #        print(self.joinreqtyp)
+        #        print('rejoin request')
+        #        acptopt_f = '<s8s2ss3s3s4sss'
+        #        macpld = struct.pack(
+        #            acptopt_f,
+        #            self.joinreqtyp,
+        #            self.joineui[::-1],
+        #            bytes(2),
+        #            macpld,
+        #            self.joinnonce,
+        #            self.homenetid,
+        #            self.devaddr,
+        #            self.dlsettings,
+        #            self.rxdelay
+        #       )
+        #cobj = CMAC.new(key, ciphermod=AES)
+        
         if optneg:
             acptopt_f = '<s8s2s'
             macpld = struct.pack(
-                acptopt_f,
-                self.joinreqtyp,
-                self.joineui[::-1],
-                self.devnonce[::-1],
-            ) + macpld
+                    acptopt_f,
+                    self.joinreqtyp,
+                    self.joineui[::-1],
+                    self.devnonce[::-1],
+                    ) + macpld
+
+        print('------------this is key-------------')
+        print('devnonce: ', self.devnonce[::-1].hex())
+        print('Key used for CMAC: ', key.hex())
+        print('MIC String: ', macpld.hex())
+
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(macpld)
         return cobj.digest()[:MIC_LEN]
@@ -951,8 +1015,13 @@ class Mote:
                 0,
                 i
             )
+            print('----------- Ai  -----------')
+            print(Ai)
             Si = cryptor.encrypt(Ai)
             S += Si
+        print('----------- key & S ------------')
+        print(key)
+        print(S)
         return Mote.bytes_xor(S, payload)[:pldlen]
 
     def gen_keys(self, root, keymsgs: tuple, mode=AES.MODE_ECB):
@@ -966,6 +1035,8 @@ class Mote:
             A list(even one key) of keys
         """
         cryptor = AES.new(root, mode)
+        print('----------this is key messages--------')
+        print(keymsgs)
         return [cryptor.encrypt(msg) for msg in keymsgs]
 
     @property
@@ -1004,8 +1075,6 @@ class Mote:
         mic = self.calcmic_join(
             key=self.nwkkey,
             macpld=joinreq,
-            #mhdr=mhdr,
-            #typ='joinreq',
         )
         joinreq_f = '<{}s4s'.format(struct.calcsize(joinreq_f))
         joinreq = struct.pack(
@@ -1015,15 +1084,19 @@ class Mote:
         )
         logger.info(
             ('Forming a join request message - \n'
+                'NwkKey: {}, '
+                'AppKey: {}, '
                 'AppEUI: {}, '
                 'DevEUI: {}, '
                 'DevNonce: {}, '
                 'MIC: {},'
                 'Final Join Req: {} -- '
             ).format(
+                    self.nwkkey.hex(),
+                    self.appkey.hex(),
                     self.joineui.hex(),
                     self.deveui.hex(),
-                    self.devnonce.hex(),
+                    self.devnonce[::-1].hex(),
                     mic.hex(),
                     joinreq.hex(),
                 ))
@@ -1050,7 +1123,7 @@ class Mote:
         offset = (5, 2, 0)
         return self.parse_byte(mhdr, name=name, bitlength=bitlength, offset=offset)
 
-    def parse_joinacpt(self, mhdr, joinacpt, mic):
+    def parse_joinacpt(self, mhdr, joinacptmic):
         """
         Parse the join accept message
         Args:
@@ -1070,14 +1143,22 @@ class Mote:
         |  3 bytes  |   3 bytes  | 4 bytes |   1 byte   | 1 byte  |  (16)  |
         --------------------------------------------------------------------
         """
+        msglen = len(joinacptmic)
+        pldlen = msglen - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
+        pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
+        joinacpt, mic = parse_bytes('Join Accept PHYPayload', pullresp_f, joinacptmic)
         joinacpt_f = '<3s3s4sss'
-        joinacpt = memoryview(joinacpt)
         self.cflist = joinacpt[JOINACPT_CFLIST_OFFSET:] or b''
         self.joinnonce, self.homenetid, self.devaddr, self.dlsettings, self.rxdelay = parse_bytes(
             'Join Accept MACPayload',
             joinacpt_f,
             joinacpt[:JOINACPT_CFLIST_OFFSET]
         )
+        #self.joinnonce = self.prejoinnonce[::-1]
+        #self.devaddr = self.predevaddr[::-1]
+        #print('joinnonce: ', self.joinnonce)
+        #print('devaddr: ', self.devaddr)
+
         # Check OptNeg flag in DLSettings
         optneg, self.rx1droffset, self.rx2dr = self.parse_dlsettings(self.dlsettings)
         if optneg:
@@ -1086,10 +1167,28 @@ class Mote:
             joinacpt_mic_key = self.nwkkey
         cmic = self.calcmic_join(
             key=joinacpt_mic_key,
-            macpld=mhdr.tobytes() + joinacpt.tobytes(),
+            macpld=struct.pack(f"<c{pldlen}s", mhdr.tobytes(), joinacpt),
             optneg=optneg,
-            #typ='joinacpt' + str(optneg)
         )
+
+        logger.info(
+            ('-----Parsing a join acpt message - \n'
+                'devaddr: {}'
+                'joinnonce: {}, '
+                'homenetid: {}, '
+                'optneg: {}, '
+                'rx1droffset: {}, '
+                'rx2dr: {},'
+                'Calculated MIC: {} -- '
+            ).format(self.devaddr.hex(),
+                     self.joinnonce.hex(),
+                     self.homenetid.hex(),
+                     optneg,
+                     self.rx1droffset,
+                     self.rx2dr,
+                     cmic.hex()
+                     )),
+
         if (cmic == mic):
             logger.info(
                 ('Join Accept (MIC verified) -\n'
@@ -1100,7 +1199,7 @@ class Mote:
                     'OptNeg: {}, '
                     'CFList: {},'
                 ).format(
-                    joinacpt.tobytes().hex(),
+                    joinacpt.hex(),
                     mhdr.hex(),
                     self.joinreqtyp.hex(),
                     self.devaddr.hex(),
@@ -1159,17 +1258,14 @@ class Mote:
         | 111 |       Proprietary     |
         -------------------------------
         """
+        print(f"phypld received: {phypld.hex()}")
         phypld = memoryview(phypld)
         mhdr = phypld[:MHDR_LEN]
         mtype, _, major = self.parse_mhdr(mhdr)
         if mtype == 1:
             encrypted_phypld = phypld[MHDR_LEN:]
             macpldmic = self.joinacpt_decrypt(encrypted_phypld.tobytes())
-            msglen = len(phypld)
-            pldlen = msglen - MHDR_LEN - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
-            pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
-            macpld, mic = parse_bytes('Join Accept PHYPayload', pullresp_f, macpldmic)
-            self.parse_joinacpt(mhdr, macpld, mic)
+            self.parse_joinacpt(mhdr, macpldmic)
         else:  # PULL RESP for app phypayload
             macpld = phypld[MHDR_LEN:-MIC_LEN]
             mic = phypld[-MIC_LEN:]
@@ -1224,7 +1320,7 @@ class Mote:
             logger.info(
                 ('Downlink MACPayload (MIC verified), Important Info:\n'
                     '\tFHDR dict: {}, '
-                    '\tFCntDown: {},'
+                    #'\tFCntDown: {},'
                     '\tFPort: {}, '
                     '\tPayload: {}').format(
                         fhdr_d,
@@ -1346,10 +1442,14 @@ class Mote:
             self.deveui,
             rjcount,
         )
+        print('----------- form rejoin mic & rjmsg ----------')
+        print(mickey)
+        print(rjmsg)
         mic = self.calcmic_join(
             key=mickey,
             macpld=rjmsg,
         )
+        print(rjmsg)
         logger.info(
             ('Rejoin request -\n'
                 'Type: {}, '
@@ -1364,4 +1464,4 @@ class Mote:
             macpld_f,
             rjmsg,
             mic,
-        )
+            )

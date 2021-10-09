@@ -39,8 +39,8 @@ def init(args):
         mote = mac.Mote.abp(**abp_conf)
     else:
         if args.new:
-            appkey = device_conf.Keys.AppKey
-            nwkkey = device_conf.Keys.NwkKey
+            appkey = device_conf.RootKeys.AppKey
+            nwkkey = device_conf.RootKeys.NwkKey
             device_info = device_conf.Device
             joineui = device_info.JoinEUI
             deveui = device_info.DevEUI
@@ -81,6 +81,7 @@ def main():
                 if mote.activation_mode == 'ABP':
                     raise ActivationError(f'ABP device cannot issue {args.type} request')
                 phypld = mote.form_join()
+                print(f"phypld: {phypld}")
             elif args.type == 'rejoin':
                 if mote.activation_mode == 'ABP':
                     raise ActivationError(f'ABP device cannot issue {args.type} request')
@@ -96,6 +97,8 @@ def main():
             else:
                 raise NotImplementedError
             gateway.push(udp_client, phypld, mote)
+
+
     except socket.timeout as e:
         logger.error('Socket Timeout, remote server is unreachable')
     except AttributeError as e:
