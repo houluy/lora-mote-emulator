@@ -204,7 +204,7 @@ class Gateway:
         --------------------------------------------------
         |   Version    | Token | Identifier | GatewayEUI |
         --------------------------------------------------
-        | 0x00 or 0x01 |2 bytes|    0x02    |   8 bytes  |
+        | 0x01 or 0x02 |2 bytes|    0x02    |   8 bytes  |
         --------------------------------------------------
         """
         transmitter.send(self.pull_data)
@@ -223,12 +223,18 @@ class Gateway:
         --------------------------------------------------
         |   Version    | Token | Identifier | GatewayEUI |
         --------------------------------------------------
-        | 0x00 or 0x01 |2 bytes|    0x04    |   8 bytes  |
+        | 0x01 or 0x02 |2 bytes|    0x04    |   8 bytes  |
         --------------------------------------------------
         """
         pullack = memoryview(pullack)
-        pullack_f = '<s2ss8s'
-        version, token, identifier, gatewayeui = parse_bytes(
+        #pullack_f = '<s2ss8s'
+        #version, token, identifier, gatewayeui = parse_bytes(
+        #    'PULL_ACK',
+        #   pullack_f,
+        #  pullack
+        #)
+        pullack_f = '<s2ss'
+        version, token, identifier = parse_bytes(
             'PULL_ACK',
             pullack_f,
             pullack
@@ -241,7 +247,7 @@ class Gateway:
                     version.hex(),
                     token.hex(),
                     identifier.hex(),
-                    gatewayeui.hex(),
+                    #gatewayeui.hex(),
                 ))
 
     def form_pshdat(self, data, mote):
@@ -470,10 +476,6 @@ class Mote:
             self.fnwksintkey, self.snwksintkey, self.nwksenckey = self.gen_keys(
                 self.nwkkey, (fnwksint_msg, snwksint_msg, nwksenc_msg)
             )
-            print('fnwksintkey: ', self.fnwksintkey.hex())
-            print('snwksintkey: ', self.snwksintkey.hex())
-            print('nwksenckey: ', self.nwksenckey.hex())
-
             appsmsg = b''.join([
                 b'\x02',
                 self.joinnonce[::-1],
@@ -481,7 +483,6 @@ class Mote:
                 self.devnonce[::-1],
             ]).ljust(AES_BLOCK, b'\x00')
             self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
-            print('appskey: ', self.appskey.hex())
         else:
             # Server only supports LoRaWAN 1.0
             sesskey_prefix = b''.join([
@@ -495,10 +496,6 @@ class Mote:
             ]
             self.appskey, self.fnwksintkey = self.gen_keys(self.nwkkey, (apps_msg, fnwksint_msg))
             self.snwksintkey = self.nwksenckey = self.fnwksintkey
-            print('snwksintkey: ', self.snwksintkey.hex())
-            print('fnwksintkey: ', self.fnwksintkey.hex())
-            print('nwksenckey: ', self.nwksenckey.hex())
-            print('appskey: ', self.appskey.hex())
         self.fcntup = self.rjcount0 = 0
         self.activation = True
         self.save()
@@ -618,7 +615,6 @@ class Mote:
         |    1 byte   | 8 bytes|  -  |
         ------------------------------
         """
-        print(b'\x06' + self.deveui[::-1])
         jsintkeymsg, jsenckeymsg = [
             (prefix + self.deveui[::-1]).ljust(AES_BLOCK, b'\x00') 
             for prefix in (b'\x06', b'\x05')
@@ -708,7 +704,7 @@ class Mote:
                 )
         fhdr_f = fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, self.ack)
-        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, self.fcntup, fopts)
+        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcntup, fopts)
 
     def parse_fhdr(self, macpld):
         """
@@ -778,10 +774,13 @@ class Mote:
         msg = b''.join([
             mhdr,
             fhdr,
+            #fport.to_bytes(1, 'little'),
             fport.to_bytes(1, 'big'),
             frmpld,
         ])
+        print('msg used to calculate app MIC: ', msg.hex())
         msglen = len(msg)
+
         B_f = '<cHBBB4sIBB'
         if direction == 0:
             fcnt = self.fcntup
@@ -796,7 +795,8 @@ class Mote:
             0,
             0,
             direction,
-            self.devaddr[::-1],
+            #self.devaddr[::-1],
+            self.devaddr,
             fcnt,
             0,
             msglen
@@ -806,11 +806,15 @@ class Mote:
             *B0_elements,
         )
         fmsg = B0 + msg
-        print("B0 is:")
-        print(fmsg)
+        print("----------B0 is:----------")
+        print('B0: ', B0.hex())
+        print('msg: ', msg.hex())
+        print('B0 | msg: ', fmsg.hex())
+
         fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
+            print('Uplink app push...')
             B1_elements = B0_elements[:]
             #conffcnt = fcnt if self.ack else 0
             conffcnt = fcnt
@@ -820,11 +824,17 @@ class Mote:
                 *B1_elements,
             )
             smsg = B1 + msg
+            print("----------B1 is:----------")
+            print('B1: ', B1.hex())
+            print('msg: ', msg.hex())
+            print('B1 | msg: ', smsg.hex())
             #print('msg: \nB0: {} \nB1: {}'.format(fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
+            print('Uplink CMIC: ', (scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]).hex())
             return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
         else:
+            print('Downlink CMIC: ', fcmac.digest()[:MIC_LEN].hex())
             return fcmac.digest()[:MIC_LEN]
 
     def calcmic_join(self, key, macpld, optneg=0):
@@ -879,69 +889,6 @@ class Mote:
         -------------------------------------------------------------
         Key: JSIntKey
         """
-        #joinreq_fields = ['mhdr', 'joineui', 'deveui', 'devnonce']
-        #rejoin0_fields = rejoin2_fields = ['mhdr', 'joinreqtyp', 'homenetid', 'deveui', 'rjcount0']
-        #rejoin1_fields = ['mhdr', 'joinreqtyp', 'joineui', 'deveui', 'rjcount1']
-        #joinacpt0_fields = ['mhdr', 'joinnonce', 'homenetid', 'devaddr', 'dlsettings', 'rxdelay', 'cflist']
-        #joinacpt1_fields = ['joinreqtyp', 'joineui', 'devnonce', *joinacpt0_fields]
-        #joinacpt_basic_f = 's3s3s4sss{}s'
-        #mic_f = {
-        #    'joinreq': self.joinmic_fields('<s8s8s2s', joinreq_fields),
-        #    'rejoin0': self.joinmic_fields('>ss3s8sH', rejoin0_fields),
-        #    'rejoin1': self.joinmic_fields('>ss8s8sH', rejoin1_fields),
-        #    'rejoin2': self.joinmic_fields('>ss3s8sH', rejoin2_fields),
-        #    'joinacpt0': self.joinmic_fields('>' + joinacpt_basic_f, joinacpt0_fields),
-        #    'joinacpt1': self.joinmic_fields('<s8s2s' + joinacpt_basic_f, joinacpt1_fields),
-        #}
-        #joinmic_field = mic_f[typ]
-        #def form_fields(name):
-        #    try:
-        #        return getattr(self, name)
-        #    except AttributeError:
-        #        return mhdr
-        #f = joinmic_field.struct_f
-        #if typ.startswith('joinacpt'):
-        #    f = f.format(len(self.cflist))
-        #print(list(map(form_fields, joinmic_field.field_name)))
-        #msg = struct.pack(
-        #    f,
-        #    *map(form_fields, joinmic_field.field_name)
-        #)
-        
-        #if optneg:
-        #    if self.joinreqtyp == b'\xFF':
-        #        print('join request')
-        #        acptopt_f = '<s8s2ss3s3s4sss'
-        #        macpld = struct.pack(
-        #            acptopt_f,
-        #            self.joinreqtyp,
-        #            self.joineui[::-1],
-        #            self.devnonce[::-1],
-        #            macpld,
-        #            self.prejoinnonce,
-        #            self.homenetid,
-        #            self.predevaddr,
-        #            self.dlsettings,
-        #            self.rxdelay
-        #        )
-        #    else: 
-        #        print(self.joinreqtyp)
-        #        print('rejoin request')
-        #        acptopt_f = '<s8s2ss3s3s4sss'
-        #        macpld = struct.pack(
-        #            acptopt_f,
-        #            self.joinreqtyp,
-        #            self.joineui[::-1],
-        #            bytes(2),
-        #            macpld,
-        #            self.joinnonce,
-        #            self.homenetid,
-        #            self.devaddr,
-        #            self.dlsettings,
-        #            self.rxdelay
-        #       )
-        #cobj = CMAC.new(key, ciphermod=AES)
-        
         if optneg:
             acptopt_f = '<s8s2s'
             macpld = struct.pack(
@@ -950,11 +897,6 @@ class Mote:
                     self.joineui[::-1],
                     self.devnonce[::-1],
                     ) + macpld
-
-        print('------------this is key-------------')
-        print('devnonce: ', self.devnonce[::-1].hex())
-        print('Key used for CMAC: ', key.hex())
-        print('MIC String: ', macpld.hex())
 
         cobj = CMAC.new(key, ciphermod=AES)
         cobj.update(macpld)
@@ -978,7 +920,8 @@ class Mote:
         ----------------------
         """
         macpldlen = len(macpld)
-        macpld = macpld.ljust(AES_BLOCK, b'\x00')
+        padding_size = (AES_BLOCK - macpldlen) % AES_BLOCK
+        macpld = macpld + padding_size * b'\x00'
         cryptor = AES.new(self.joinenckey, AES.MODE_ECB)
         return cryptor.encrypt(macpld)
 
@@ -1018,13 +961,13 @@ class Mote:
                 0,
                 i
             )
-            print('----------- Ai  -----------')
-            print(Ai)
+            print('-----------Encryption Process:  Ai  -----------')
+            print(Ai.hex())
             Si = cryptor.encrypt(Ai)
             S += Si
-        print('----------- key & S ------------')
-        print(key)
-        print(S)
+        print('-----------Encryption Process:  key & S ------------')
+        print(key.hex())
+        print(S.hex())
         return Mote.bytes_xor(S, payload)[:pldlen]
 
     def gen_keys(self, root, keymsgs: tuple, mode=AES.MODE_ECB):
@@ -1038,8 +981,6 @@ class Mote:
             A list(even one key) of keys
         """
         cryptor = AES.new(root, mode)
-        print('----------this is key messages--------')
-        print(keymsgs)
         return [cryptor.encrypt(msg) for msg in keymsgs]
 
     @property
@@ -1174,12 +1115,12 @@ class Mote:
 
         logger.info(
             ('-----Parsing a join acpt message - \n'
-                'devaddr: {}'
+                'devaddr: {}, '
                 'joinnonce: {}, '
                 'homenetid: {}, '
                 'optneg: {}, '
                 'rx1droffset: {}, '
-                'rx2dr: {},'
+                'rx2dr: {}, '
                 'Calculated MIC: {} -- '
             ).format(self.devaddr.hex(),
                      self.joinnonce.hex(),
@@ -1259,7 +1200,6 @@ class Mote:
         | 111 |       Proprietary     |
         -------------------------------
         """
-        print(f"phypld received: {phypld.hex()}")
         phypld = memoryview(phypld)
         mhdr = phypld[:MHDR_LEN]
         mtype, _, major = self.parse_mhdr(mhdr)
@@ -1350,6 +1290,9 @@ class Mote:
         else:
             mhdr = b'\x80'
         fhdrlen, fhdr = self.form_fhdr(fopts, self.version)
+        print('----------Msg before encryption: ----------')
+        print('FHDR: ', fhdr.hex())
+        print('Frmpld: ', frmpld.hex())
         frmpldlen = len(frmpld)
         phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
@@ -1364,6 +1307,8 @@ class Mote:
             frmpld,
             direction=0
         )
+        print('----------After encryption: ----------')
+        print('Frmpld: ', frmpld.hex())
         mic = self.calcmic_app(
             mhdr,
             direction=0,
@@ -1376,11 +1321,13 @@ class Mote:
         self.save()
         logger.info(
             ('Uplink application data -\n'
+                'MHDR: {}, '
                 'FHDR: {}, '
                 'FOpts: {}, '
                 'FPort: {}, '
                 'FRMPayload (after encryption): {}, '
                 'MIC: {} --').format(
+                    mhdr.hex(),
                     fhdr.hex(),
                     fopts.hex(),
                     fport,
