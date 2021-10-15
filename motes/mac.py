@@ -704,7 +704,10 @@ class Mote:
                 )
         fhdr_f = fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, self.ack)
-        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr, fctrl, self.fcntup, fopts)
+
+        # FIXME
+        #return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, 1, fopts)
+        return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, self.fcntup, fopts)
 
     def parse_fhdr(self, macpld):
         """
@@ -782,21 +785,23 @@ class Mote:
         msglen = len(msg)
 
         B_f = '<cHBBB4sIBB'
+        # FIXME
         if direction == 0:
             fcnt = self.fcntup
             key = self.fnwksintkey
         else:
             key = self.snwksintkey
         #conffcnt = fcnt if (direction == 1) else 0
-        conffcnt = fcnt if (self.ack and direction == 1) else 0
+        # conffcnt = fcnt if (self.ack and direction == 1) else 0
+        conffcnt = 0
         B0_elements = [
             b'\x49',
             conffcnt,
             0,
             0,
             direction,
-            #self.devaddr[::-1],
-            self.devaddr,
+            self.devaddr[::-1],
+            # self.devaddr,
             fcnt,
             0,
             msglen
@@ -816,8 +821,8 @@ class Mote:
         if direction == 0:
             print('Uplink app push...')
             B1_elements = B0_elements[:]
-            #conffcnt = fcnt if self.ack else 0
-            conffcnt = fcnt
+            conffcnt = fcnt if self.ack else 0
+            #conffcnt = fcnt
             B1_elements[1:4] = [conffcnt, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,

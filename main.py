@@ -102,7 +102,7 @@ def main():
                     phypld = mote.form_rejoin(args.rejointyp)
                 elif args.type == 'app':
                     fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-                    fport = random.randint(1, 223)
+                    fport = 20#random.randint(1, 223)
                     msg = args.msg.encode()
                     phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed)
                 elif args.type == 'cmd':
