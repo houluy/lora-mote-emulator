@@ -705,7 +705,7 @@ class Mote:
         fhdr_f = fhdr_f + '{}s'.format(foptslen)
         fctrl = self.form_fctrl(foptslen, self.ack)
 
-        # FIXME
+        # FIXME  devaddr[::-1]
         #return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, 1, fopts)
         return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, self.fcntup, fopts)
 
@@ -781,19 +781,16 @@ class Mote:
             fport.to_bytes(1, 'big'),
             frmpld,
         ])
-        print('msg used to calculate app MIC: ', msg.hex())
         msglen = len(msg)
 
         B_f = '<cHBBB4sIBB'
-        # FIXME
+        # FIXME devaddr[::-1]
         if direction == 0:
             fcnt = self.fcntup
             key = self.fnwksintkey
         else:
             key = self.snwksintkey
-        #conffcnt = fcnt if (direction == 1) else 0
-        # conffcnt = fcnt if (self.ack and direction == 1) else 0
-        conffcnt = 0
+        conffcnt = self.fcntup - 1 if (self.ack and direction == 1) else 0
         B0_elements = [
             b'\x49',
             conffcnt,
@@ -811,15 +808,9 @@ class Mote:
             *B0_elements,
         )
         fmsg = B0 + msg
-        print("----------B0 is:----------")
-        print('B0: ', B0.hex())
-        print('msg: ', msg.hex())
-        print('B0 | msg: ', fmsg.hex())
-
         fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
         if direction == 0:
-            print('Uplink app push...')
             B1_elements = B0_elements[:]
             conffcnt = fcnt if self.ack else 0
             #conffcnt = fcnt
@@ -829,17 +820,10 @@ class Mote:
                 *B1_elements,
             )
             smsg = B1 + msg
-            print("----------B1 is:----------")
-            print('B1: ', B1.hex())
-            print('msg: ', msg.hex())
-            print('B1 | msg: ', smsg.hex())
-            #print('msg: \nB0: {} \nB1: {}'.format(fmsg.hex(), smsg.hex()))
             scmacobj = CMAC.new(self.snwksintkey, ciphermod=AES)
             scmac = scmacobj.update(smsg)
-            print('Uplink CMIC: ', (scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]).hex())
             return scmac.digest()[:MIC_LEN//2] + fcmac.digest()[:MIC_LEN//2]
         else:
-            print('Downlink CMIC: ', fcmac.digest()[:MIC_LEN].hex())
             return fcmac.digest()[:MIC_LEN]
 
     def calcmic_join(self, key, macpld, optneg=0):
@@ -966,13 +950,8 @@ class Mote:
                 0,
                 i
             )
-            print('-----------Encryption Process:  Ai  -----------')
-            print(Ai.hex())
             Si = cryptor.encrypt(Ai)
             S += Si
-        print('-----------Encryption Process:  key & S ------------')
-        print(key.hex())
-        print(S.hex())
         return Mote.bytes_xor(S, payload)[:pldlen]
 
     def gen_keys(self, root, keymsgs: tuple, mode=AES.MODE_ECB):
@@ -1238,8 +1217,8 @@ class Mote:
         """
         macpld = memoryview(macpld)
         confirmed = True if mtype == 5 else False
-        self.ack = confirmed
         fhdrlen, fhdr, fhdr_d = self.parse_fhdr(macpld)
+        self.ack = fhdr_d.get('ack')
         fcntdown = fhdr_d.get('fcnt')
         fport = macpld[fhdrlen]
         frmpld = macpld[fhdrlen + FPORT_LEN:]
@@ -1295,9 +1274,6 @@ class Mote:
         else:
             mhdr = b'\x80'
         fhdrlen, fhdr = self.form_fhdr(fopts, self.version)
-        print('----------Msg before encryption: ----------')
-        print('FHDR: ', fhdr.hex())
-        print('Frmpld: ', frmpld.hex())
         frmpldlen = len(frmpld)
         phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
@@ -1312,8 +1288,6 @@ class Mote:
             frmpld,
             direction=0
         )
-        print('----------After encryption: ----------')
-        print('Frmpld: ', frmpld.hex())
         mic = self.calcmic_app(
             mhdr,
             direction=0,
