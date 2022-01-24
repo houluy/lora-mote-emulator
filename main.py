@@ -59,7 +59,8 @@ def init_mote(args):
             device_info = device_conf.Device
             joineui = device_info.JoinEUI
             deveui = device_info.DevEUI
-            mote = mac.Mote(joineui, deveui, appkey, nwkkey, device_file)
+            devnonce = device_info.DevNonce
+            mote = mac.Mote(joineui, deveui, appkey, nwkkey, devnonce, device_file)
         else:
             try:
                 mote = mac.Mote.load(device_file)
@@ -88,6 +89,11 @@ def main():
                 mote.reset()
                 logger.info('Device is reset')
                 print(mote)
+            elif args.type == 'conf':
+                mote.fcntup = args.fcnt
+                mote.save()
+                logger.info(f'FCntUp is reset to be {args.fcnt}')
+                print(mote)
             elif args.type == 'abp':
                 logger.info('Device successfully been setup in ABP mode')
                 print(mote)
@@ -102,12 +108,12 @@ def main():
                     phypld = mote.form_rejoin(args.rejointyp)
                 elif args.type == 'app':
                     fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-                    fport = 20#random.randint(1, 223)
+                    fport = random.randint(1, 223)
                     msg = args.msg.encode()
-                    phypld = mote.form_phypld(fport, msg, fopts, args.unconfirmed)
+                    phypld = mote.form_phypld(fport, msg, fopts, unconfirmed=args.unconfirmed, ack=args.ack)
                 elif args.type == 'cmd':
                     fport = 0
-                    phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed)
+                    phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed, ack=args.ack)
                 else:
                     raise NotImplementedError
                 gateway.push(udp_client, phypld, mote)

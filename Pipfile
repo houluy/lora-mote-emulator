@@ -5,7 +5,6 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [packages]
 pyyaml = "*"
-colorline = "*"
 pycryptodome = "*"
 pytest = "*"
 

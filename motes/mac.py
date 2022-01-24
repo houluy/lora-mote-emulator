@@ -227,12 +227,6 @@ class Gateway:
         --------------------------------------------------
         """
         pullack = memoryview(pullack)
-        #pullack_f = '<s2ss8s'
-        #version, token, identifier, gatewayeui = parse_bytes(
-        #    'PULL_ACK',
-        #   pullack_f,
-        #  pullack
-        #)
         pullack_f = '<s2ss'
         version, token, identifier = parse_bytes(
             'PULL_ACK',
@@ -429,9 +423,10 @@ class Mote:
     """
     joinmic_fields = namedtuple('joinmic', ('struct_f', 'field_name'))
 
-    def __init__(self, joineui, deveui, appkey, nwkkey, conffile='models/device.pkl', **kwargs):
+    def __init__(self, joineui, deveui, appkey, nwkkey, devnonce=0, conffile='models/device.pkl', **kwargs):
         self.joineui = bytes.fromhex(joineui)
         self.deveui = bytes.fromhex(deveui)
+        self.devnonce = devnonce
         self.appkey, self.nwkkey = bytes.fromhex(appkey), bytes.fromhex(nwkkey)
         self.conffile = pathlib.Path(conffile)
         self.txdr = 5 # Uplink data rate index
@@ -441,9 +436,11 @@ class Mote:
         self.gen_jskeys()
         self.activation = False
         self.activation_mode = 'OTAA'
-        self.ack = False
         self.version = "1.1"
         self.msg_file = "message.json"
+        self.last_msg_acked = True
+        self.acked_downlink = 0
+        self.acked_uplink = 0
         self.save()
 
     def _initialize_session(self, optneg):
@@ -461,7 +458,7 @@ class Mote:
                 nwkskey_prefix = b''.join([
                     self.joinnonce[::-1],
                     self.joineui[::-1],
-                    self.devnonce[::-1],
+                    struct.pack('<H', self.devnonce),
                 ])
             else:
                 nwkskey_prefix = b''.join([
@@ -480,7 +477,7 @@ class Mote:
                 b'\x02',
                 self.joinnonce[::-1],
                 self.joineui[::-1],
-                self.devnonce[::-1],
+                struct.pack('<H', self.devnonce),
             ]).ljust(AES_BLOCK, b'\x00')
             self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
         else:
@@ -488,7 +485,7 @@ class Mote:
             sesskey_prefix = b''.join([
                 self.joinnonce[::-1],
                 self.homenetid[::-1],
-                self.devnonce[::-1],
+                struct.pack('<H', self.devnonce),
             ])
             apps_msg, fnwksint_msg = [
                 (prefix + sesskey_prefix).ljust(AES_BLOCK, b'\x00')
@@ -580,7 +577,7 @@ class Mote:
         mote.save()
         return mote
 
-    def __repr__(self):
+    def __str__(self):
         basic = (f'LoRa Motes Information:\n'
             f'DevEUI: {self.deveui.hex()}\n'
             f'JoinEUI: {self.joineui.hex()}\n'
@@ -588,10 +585,12 @@ class Mote:
             f'AppKey: {self.appkey.hex()}\n'
             f'Activation mode: {self.activation_mode}\n'
             f'Activation status: {self.activation}\n')
-        extra = actv_extra = ''
+        extra = actv_extra = last_msg = ''
         if self.activation:
             extra = (f'\nDevAddr: {self.devaddr.hex()}\n'
                 f'FCntUp: {self.fcntup}\n'
+                f'ACKed Downlink Count: {self.acked_downlink}\n'
+                f'ACKed Uplink Count: {self.acked_uplink}\n'
                 f'JSIntKey: {self.jsintkey.hex()}\n'
                 f'JSEncKey: {self.jsenckey.hex()}\n'
                 f'FNwkSIntKey: {self.fnwksintkey.hex()}\n'
@@ -602,9 +601,17 @@ class Mote:
             if self.activation_mode == 'OTAA':
                 actv_extra = (
                     f'JoinNonce: {self.joinnonce.hex()}\n'
-                    f'DevNonce: {self.devnonce.hex()}\n'
+                    f'DevNonce: {self.devnonce}\n'
                 )
-        return basic + extra + actv_extra
+            if self.last_msg_acked:
+                last_msg = (
+                    f'Last message is acknowledged\n'
+                )
+            else:
+                last_msg = (
+                    f'Last message has not been acknowledged yet\n'
+                )
+        return basic + extra + actv_extra + last_msg
 
     def gen_jskeys(self):
         """
@@ -642,7 +649,7 @@ class Mote:
         Form FCtrl byte in FHDR
         Args:
             foptslen: Indicate the real length of FOpts field
-            ack: Whether an ack is required to last message
+            ack: Identity acknowledgement of the last downlink message
         Returns:
             A bytes of FCtrl field
 
@@ -671,17 +678,18 @@ class Mote:
         |  0  |  0  |  0  |    0   |   0000   |
         ---------------------------------------
         """
-        name = ('adr', 'rfu', 'ack', 'fpending', 'foptslen')
-        bitlength = (1, 1, 1, 1, 4)
+        name = ['adr', 'rfu', 'ack', 'fpending', 'foptslen']
         offset = (7, 6, 5, 4, 0)
+        bitlength = [1, 1, 1, 1, 4]
         return self.parse_byte(fctrl, name=name, bitlength=bitlength, offset=offset)
 
-    def form_fhdr(self, fopts, version='1.1'):
+    def form_fhdr(self, fopts, version='1.1', ack=False):
         """
         Form FHDR field
         Args:
             fopts: FOpts values, could be empty bytes
             version: LoRaWAN version, if 1.1, then FOpts MUST be encrypted
+            ack: Identity acknowledgement of the last downlink message
         Returns:
             Length and bytes of FHDR field
 
@@ -703,10 +711,7 @@ class Mote:
                     start=0,
                 )
         fhdr_f = fhdr_f + '{}s'.format(foptslen)
-        fctrl = self.form_fctrl(foptslen, self.ack)
-
-        # FIXME  devaddr[::-1]
-        #return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, 1, fopts)
+        fctrl = self.form_fctrl(foptslen, ack)
         return struct.calcsize(fhdr_f), struct.pack(fhdr_f, self.devaddr[::-1], fctrl, self.fcntup, fopts)
 
     def parse_fhdr(self, macpld):
@@ -746,7 +751,7 @@ class Mote:
         )
         return fhdrlen, macpld[:fhdrlen], fhdr_d
 
-    def calcmic_app(self, mhdr, fhdr, fport, frmpld, direction, fcnt=0):
+    def calcmic_app(self, mhdr, fhdr, ack=False, fport=None, frmpld=None, direction=0, fcnt=0):
         """
         Calculate the MIC field for uplink and downlink application data
         Args:
@@ -774,23 +779,21 @@ class Mote:
         ----------------------------------------------------------------------------
         B1 key: SNwkSIntKey
         """
-        msg = b''.join([
-            mhdr,
-            fhdr,
-            #fport.to_bytes(1, 'little'),
-            fport.to_bytes(1, 'big'),
-            frmpld,
-        ])
+        msg_lst = [mhdr, fhdr]
+        if fport is not None:
+            msg_lst.append(fport.to_bytes(1, 'big'))
+            msg_lst.append(frmpld)
+        msg = b''.join(msg_lst)
         msglen = len(msg)
 
         B_f = '<cHBBB4sIBB'
-        # FIXME devaddr[::-1]
         if direction == 0:
             fcnt = self.fcntup
             key = self.fnwksintkey
+            conffcnt = 0 # ConfFCnt is zero in B0.
         else:
             key = self.snwksintkey
-        conffcnt = self.fcntup - 1 if (self.ack and direction == 1) else 0
+            conffcnt = self.fcntup - 1 if (ack) else 0 # divmod(self.acked_uplink, 2**16)[1] if (ack) else 0
         B0_elements = [
             b'\x49',
             conffcnt,
@@ -798,7 +801,6 @@ class Mote:
             0,
             direction,
             self.devaddr[::-1],
-            # self.devaddr,
             fcnt,
             0,
             msglen
@@ -810,10 +812,9 @@ class Mote:
         fmsg = B0 + msg
         fcmacobj = CMAC.new(key, ciphermod=AES)
         fcmac = fcmacobj.update(fmsg)
-        if direction == 0:
+        if direction == 0: # Only uplink message has B1
             B1_elements = B0_elements[:]
-            conffcnt = fcnt if self.ack else 0
-            #conffcnt = fcnt
+            conffcnt = 0 if ack else 0  # FIXME: ChirpStack uplink ConfFCnt always zero
             B1_elements[1:4] = [conffcnt, self.txdr, self.txch]
             B1 = struct.pack(
                 B_f,
@@ -879,12 +880,12 @@ class Mote:
         Key: JSIntKey
         """
         if optneg:
-            acptopt_f = '<s8s2s'
+            acptopt_f = '<s8sH'
             macpld = struct.pack(
                     acptopt_f,
                     self.joinreqtyp,
                     self.joineui[::-1],
-                    self.devnonce[::-1],
+                    self.devnonce,
                     ) + macpld
 
         cobj = CMAC.new(key, ciphermod=AES)
@@ -934,7 +935,7 @@ class Mote:
         """
         pldlen = len(payload)
         k = math.ceil(pldlen / AES_BLOCK)
-        payload = payload.ljust(AES_BLOCK * k, b'\x00')
+        #payload = payload.ljust(AES_BLOCK * k, b'\x00')
         cryptor = AES.new(key, AES.MODE_ECB)
         S = b''
         ai_f = '<cIB4sIBB'
@@ -989,16 +990,16 @@ class Mote:
         |0x02| Rejoin type 2|
         ---------------------
         """
-        joinreq_f = '<s8s8s2s'
+        joinreq_f = '<s8s8sH'
         self.joinreqtyp = b'\xFF'
-        self.devnonce = secrets.token_bytes(DEVNONCE_LEN)
+        self.devnonce += 1
         mhdr = b'\x00'
         joinreq = struct.pack(
             joinreq_f,
             mhdr,
             self.joineui[::-1],
             self.deveui[::-1],
-            self.devnonce[::-1],
+            self.devnonce,
         )
         mic = self.calcmic_join(
             key=self.nwkkey,
@@ -1024,7 +1025,7 @@ class Mote:
                     self.appkey.hex(),
                     self.joineui.hex(),
                     self.deveui.hex(),
-                    self.devnonce[::-1].hex(),
+                    self.devnonce,
                     mic.hex(),
                     joinreq.hex(),
                 ))
@@ -1071,6 +1072,7 @@ class Mote:
         |  3 bytes  |   3 bytes  | 4 bytes |   1 byte   | 1 byte  |  (16)  |
         --------------------------------------------------------------------
         """
+        print(joinacptmic.hex())
         msglen = len(joinacptmic)
         pldlen = msglen - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
         pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
@@ -1189,6 +1191,7 @@ class Mote:
         mtype, _, major = self.parse_mhdr(mhdr)
         if mtype == 1:
             encrypted_phypld = phypld[MHDR_LEN:]
+            print(bytes(encrypted_phypld).hex())
             macpldmic = self.joinacpt_decrypt(encrypted_phypld.tobytes())
             self.parse_joinacpt(mhdr, macpldmic)
         else:  # PULL RESP for app phypayload
@@ -1209,19 +1212,24 @@ class Mote:
         Exceptions:
             MICError: MIC mismatches
 
-        ------------------------------------
-        | MHDR | FHDR | FPort | FRMPayload |
-        ------------------------------------
-        |1 byte|  -   |1 byte |     -      |
-        ------------------------------------
+        -----------------------------------------
+        | MHDR |    FHDR   | FPort | FRMPayload |
+        -----------------------------------------
+        |1 byte| > 6 bytes |1 byte |     -      |
+        -----------------------------------------
         """
         macpld = memoryview(macpld)
         confirmed = True if mtype == 5 else False
         fhdrlen, fhdr, fhdr_d = self.parse_fhdr(macpld)
-        self.ack = fhdr_d.get('ack')
+        ack = fhdr_d.get('ack')
         fcntdown = fhdr_d.get('fcnt')
-        fport = macpld[fhdrlen]
-        frmpld = macpld[fhdrlen + FPORT_LEN:]
+        # There could be no FPort and FRMPayload fields, check before assign
+        try:
+            fport = macpld[fhdrlen]
+        except IndexError:
+            fport = frmpld = None
+        else:
+            frmpld = macpld[fhdrlen + FPORT_LEN:].tobytes()
         if fport == 0:
             key = self.nwksenckey
         else:
@@ -1229,33 +1237,45 @@ class Mote:
         #TODO: The LoRaWAN version
         cmic = self.calcmic_app(
             mhdr,
+            ack=ack,
             direction=1,
             fcnt=fcntdown,
             fhdr=fhdr,
             fport=fport,
-            frmpld=frmpld.tobytes(),
+            frmpld=frmpld,
         )
         if (cmic == mic):
-            frmpld = self.encrypt(
-                key,
-                frmpld.tobytes(),
-                direction=1,
-                fcnt=fcntdown # This arg must be provided
-            )
+            if ack:
+                self.last_msg_acked = True
+                self.acked_uplink += 1
+                self.save()
+            if frmpld is not None:
+                frmpld = self.encrypt(
+                    key,
+                    frmpld,
+                    direction=1,
+                    fcnt=fcntdown # This arg must be provided
+                )
+            if confirmed:
+                prefix = 'un'
+            else:
+                prefix = ''
+            message_type = prefix + "confirmed downlink"
             logger.info(
                 ('Downlink MACPayload (MIC verified), Important Info:\n'
+                    '\tMessage Type: {}\n'
                     '\tFHDR dict: {}, '
-                    #'\tFCntDown: {},'
-                    '\tFPort: {}, '
+                    '\tFPort: {}, \n'
                     '\tPayload: {}').format(
+                        message_type,
                         fhdr_d,
                         fport,
-                        frmpld.hex(),
+                        frmpld,
                     ))
         else:
             raise MICError('MACPayload', mic, cmic)
         
-    def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False):
+    def form_phypld(self, fport, frmpld, fopts=b'', unconfirmed=False, ack=False):
         """
         Form the MACPayload of normal application data
         Args:
@@ -1264,6 +1284,7 @@ class Mote:
             encrypt: Encryption of MACPayload (APP or CMD)
             fopts: MAC Command in FOpts field, < 15 bytes
             unconfirmed: Unconfirmed data up or confirmed data up
+            ack: Acknowledgement of donwlink data
         Returns:
             bytes of final application data
         Exceptions:
@@ -1271,9 +1292,11 @@ class Mote:
         """
         if unconfirmed:
             mhdr = b'\x40'
+            self.last_msg_acked = True
         else:
             mhdr = b'\x80'
-        fhdrlen, fhdr = self.form_fhdr(fopts, self.version)
+            self.last_msg_acked = False
+        fhdrlen, fhdr = self.form_fhdr(fopts, self.version, ack)
         frmpldlen = len(frmpld)
         phypld_f = '<s{fhdrlen}sB{frmpldlen}s4s'.format(
             fhdrlen=fhdrlen,
@@ -1290,13 +1313,16 @@ class Mote:
         )
         mic = self.calcmic_app(
             mhdr,
+            ack=ack,
             direction=0,
+            fcnt=self.fcntup,
             fhdr=fhdr,
             fport=fport,
             frmpld=frmpld,
         )
         self.fcntup += 1
-        self.ack = False
+        if ack:
+            self.acked_downlink += 1
         self.save()
         logger.info(
             ('Uplink application data -\n'
@@ -1350,7 +1376,7 @@ class Mote:
         rejoin_f = '<sB{}s8sH'
         typ_field = {
             0: (self.homenetid, self.rjcount0),
-            1: (self.joineui, self.rjcount1),
+            1: (self.joineui[::-1], self.rjcount1),
             2: (self.homenetid, self.rjcount0)
         }
         if typ == 0 or typ == 2:
@@ -1366,7 +1392,7 @@ class Mote:
             mhdr,
             typ,
             field,
-            self.deveui,
+            self.deveui[::-1],
             rjcount,
         )
         mic = self.calcmic_join(
@@ -1393,6 +1419,8 @@ class Mote:
         self.fcntup = 0
         self.fcntdown = 0
         self.fcnt = 0
+        self.acked_downlink = 0
+        self.acked_uplink = 0
 
     def message_from_file(self):
         try:

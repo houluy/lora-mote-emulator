@@ -5,7 +5,7 @@ def define_parser():
         description='Tool for test on LoRaWAN server'
     )
 
-    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp', 'reset']
+    message_lst = ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp', 'reset', 'conf']
 
     parser.add_argument(
         'type',
@@ -29,6 +29,10 @@ def define_parser():
     )
 
     parser.add_argument(
+        '-t', '--fcnt', help='Change the value of FCntUp manually', dest='fcnt', type=int
+    )
+
+    parser.add_argument(
         '-f', help='MAC Command in FOpts field', dest='fopts'
     )
 
@@ -45,13 +49,9 @@ def define_parser():
             ' Be careful this flag can override current device, information may be lost.'), dest='new', action='store_true'
     )
 
-#    parser.add_argument(
-#        '--abp', help='Activate device in ABP mode', dest='abp', action='store_true'
-#    )
-#
-#    parser.add_argument(
-#        '-i', '--info', help='Show information of current device for debugging', dest='info', action='store_true'
-#    )
+    parser.add_argument(
+        '-a', '--ack', help=('Identity an acknowledgement of downlink message'), dest='ack', action='store_true'
+    )
 
     parser.add_argument(
         '-r',
