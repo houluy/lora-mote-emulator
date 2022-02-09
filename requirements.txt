@@ -1,4 +1,3 @@
 -i https://pypi.tuna.tsinghua.edu.cn/simple
-colorline==1.0.3
 pycryptodome==3.8.2
 pyyaml==5.1.1

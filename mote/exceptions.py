@@ -55,5 +55,3 @@ class FOptsError(ValueError):
 class NoResponseError(socket.timeout):
     pass
 
-
-del struct, socket

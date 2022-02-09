@@ -423,12 +423,14 @@ class Mote:
     """
     joinmic_fields = namedtuple('joinmic', ('struct_f', 'field_name'))
 
-    def __init__(self, joineui, deveui, appkey, nwkkey, devnonce=0, conffile='models/device.pkl', **kwargs):
+    def __init__(self, joineui, deveui, appkey, nwkkey, dbpath='models', **kwargs):
         self.joineui = bytes.fromhex(joineui)
         self.deveui = bytes.fromhex(deveui)
-        self.devnonce = devnonce
         self.appkey, self.nwkkey = bytes.fromhex(appkey), bytes.fromhex(nwkkey)
-        self.conffile = pathlib.Path(conffile)
+        self.dbpath = pathlib.Path(dbpath)
+        self.model_file = self.dbpath / "device.pkl"
+        self.nonce_file = self.dbpath / "nonce.json"
+        self._init_nonce_dic()
         self.txdr = 5 # Uplink data rate index
         self.txch = 1 # Channel index
         self.rjcount1 = 0 # Rejoin type 1 counter
@@ -442,6 +444,27 @@ class Mote:
         self.acked_downlink = 0
         self.acked_uplink = 0
         self.save()
+
+    def _init_nonce_dic(self):
+        try:  # Create the nonce dict for the very first time using the program
+            self.nonce_dic = self.load_nonce()
+        except (FileNotFoundError, json.decoder.JSONDecodeError):
+            self.nonce_dic = {}
+        finally:
+            self.devnonce
+            self.save_nonce()
+
+    @property
+    def devnonce(self):
+        try:
+            val = self.nonce_dic[self.deveui.hex()]
+        except KeyError:
+            self.devnonce = val = 0
+        return val
+
+    @devnonce.setter
+    def devnonce(self, val):
+        self.nonce_dic[self.deveui.hex()] = val
 
     def _initialize_session(self, optneg):
         """
@@ -535,13 +558,26 @@ class Mote:
 
     def save(self):
         try:
-            self.conffile.parent.mkdir()
+            self.dbpath.mkdir()
         except FileExistsError:
             pass
         finally:
-            with open(self.conffile, 'wb') as f:
+            with open(self.model_file, 'wb') as f:
                 pickle.dump(self, f)
 
+    def save_nonce(self):
+        try:
+            self.dbpath.mkdir()
+        except FileExistsError:
+            pass
+        finally:
+            with open(self.nonce_file, 'w') as f:
+                json.dump(self.nonce_dic, f)
+
+    def load_nonce(self):
+        with open(self.nonce_file, "r") as f:
+            nonce_dic = json.load(f)
+        return nonce_dic
 
     @classmethod
     def abp(cls, **kwargs):
@@ -993,6 +1029,7 @@ class Mote:
         joinreq_f = '<s8s8sH'
         self.joinreqtyp = b'\xFF'
         self.devnonce += 1
+        self.save_nonce()
         mhdr = b'\x00'
         joinreq = struct.pack(
             joinreq_f,
@@ -1431,3 +1468,4 @@ class Mote:
             obj = json.load(f)
         finally:
             f.close()
+

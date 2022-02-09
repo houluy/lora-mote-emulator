@@ -1,4 +1,4 @@
-import yaml
+import json
 import logging
 from functools import partial
 from collections.abc import MutableMapping
@@ -20,17 +20,17 @@ def parse_config(config, target):
             target.add(**{key: value})
     return target
 
-def load_config(configfile='config/config.yml'):
+def load_config(configfile):
     """
     Load basic config
     Args:
-        configfile: config file name (YAML format)
+        configfile: config file name (JSON format)
     Returns:
         A logger, command line args and a UDP client
     """
     logger = logging.getLogger('main')
     with open(configfile, 'r') as f:
-        config = parse_config(yaml.load(f, Loader=yaml.FullLoader), Config())
+        config = parse_config(json.load(f), Config())
     log_level = {
         'notset': 0,
         'debug': 10,

@@ -1,3 +1,13 @@
+Metadata-Version: 2.1
+Name: lora-mote-emulator
+Version: 1.0.0
+Summary: Emulate LoRa mote (a.k.a end-device) and gateway.
+Author: Lu Hou
+Author-email: houlu8674@bupt.edu.cn
+License: UNKNOWN
+Platform: UNKNOWN
+License-File: LICENSE
+
 LoRa Mote Emulator
 ==================
 
@@ -171,3 +181,5 @@ This repo is hosted on https://github.com/houluy/lora-motes-emulator and under M
 .. |version| image:: https://img.shields.io/badge/LoRaWAN-1.1-orange.svg?style=plastic
 .. |python| image:: https://img.shields.io/badge/Python-3.6%2C3.7-blue.svg?style=plastic&logo=python
 .. |license| image:: https://img.shields.io/badge/License-MIT-red.svg?style=plastic
+
+

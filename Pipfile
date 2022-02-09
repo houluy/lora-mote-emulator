@@ -4,9 +4,7 @@ verify_ssl = true
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [packages]
-pyyaml = "*"
 pycryptodome = "*"
-pytest = "*"
 
 [requires]
 python_version = "3.6"
@@ -14,3 +12,4 @@ python_version = "3.6"
 [dev-packages]
 sphinx = "*"
 pylint = "*"
+build = "*"
