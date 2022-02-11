@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: lora-mote-emulator
-Version: 1.0.0
+Version: 1.0.1
 Summary: Emulate LoRa mote (a.k.a end-device) and gateway.
 Author: Lu Hou
 Author-email: houlu8674@bupt.edu.cn
