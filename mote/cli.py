@@ -37,7 +37,7 @@ def define_parser():
     )
     rejoin_parser = sub_parsers.add_parser("rejoin", help="Send rejoin request.")
     rejoin_parser.add_argument(
-        'typ',
+        'rejointyp',
         help="Specify rejoin type, 'int' required, default is 0",
         type=int,
         choices=[0, 1, 2],

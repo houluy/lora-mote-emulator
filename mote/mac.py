@@ -466,7 +466,7 @@ class Mote:
     def devnonce(self, val):
         self.nonce_dic[self.deveui.hex()] = val
 
-    def _initialize_session(self, optneg):
+    def _initialize_session(self, optneg, devnonce):
         """
         Initialize session context according to optneg flag
         Args:
@@ -481,7 +481,7 @@ class Mote:
                 nwkskey_prefix = b''.join([
                     self.joinnonce[::-1],
                     self.joineui[::-1],
-                    struct.pack('<H', self.devnonce),
+                    struct.pack('<H', devnonce),
                 ])
             else:
                 nwkskey_prefix = b''.join([
@@ -500,7 +500,7 @@ class Mote:
                 b'\x02',
                 self.joinnonce[::-1],
                 self.joineui[::-1],
-                struct.pack('<H', self.devnonce),
+                struct.pack('<H', devnonce),
             ]).ljust(AES_BLOCK, b'\x00')
             self.appskey, = self.gen_keys(self.appkey, (appsmsg,))
         else:
@@ -508,7 +508,7 @@ class Mote:
             sesskey_prefix = b''.join([
                 self.joinnonce[::-1],
                 self.homenetid[::-1],
-                struct.pack('<H', self.devnonce),
+                struct.pack('<H', devnonce),
             ])
             apps_msg, fnwksint_msg = [
                 (prefix + sesskey_prefix).ljust(AES_BLOCK, b'\x00')
@@ -554,6 +554,7 @@ class Mote:
         """
         with open(filename, 'rb') as f:
             obj = pickle.load(f)
+        obj._init_nonce_dic()
         return obj
 
     def save(self):
@@ -638,6 +639,8 @@ class Mote:
                 actv_extra = (
                     f'JoinNonce: {self.joinnonce.hex()}\n'
                     f'DevNonce: {self.devnonce}\n'
+                    f'Rjcount0: {self.rjcount0}\n'
+                    f'Rjcount1: {self.rjcount1}\n'
                 )
             if self.last_msg_acked:
                 last_msg = (
@@ -1109,7 +1112,6 @@ class Mote:
         |  3 bytes  |   3 bytes  | 4 bytes |   1 byte   | 1 byte  |  (16)  |
         --------------------------------------------------------------------
         """
-        print(joinacptmic.hex())
         msglen = len(joinacptmic)
         pldlen = msglen - MIC_LEN  # MHDR 1 byte, MIC 4 bytes
         pullresp_f = '<{}s{}s'.format(pldlen, MIC_LEN)
@@ -1171,10 +1173,15 @@ class Mote:
                     optneg,
                     self.cflist.hex(),
                 ))
-
-            self._initialize_session(optneg)
+            if self.joinreqtyp == b'\xFF':
+                devnonce = self.devnonce
+            elif self.joinreqtyp in (b'\x00', b'\x02'):
+                devnonce = self.rjcount0
+            else:
+                devnonce = self.rjcount1
+            self._initialize_session(optneg, devnonce)
         else:
-            raise MICError('Join Accept', mic, cmic)
+            raise MICError('Join accept message', mic, cmic)
 
     def parse_dlsettings(self, dlsettings):
         """
@@ -1228,7 +1235,6 @@ class Mote:
         mtype, _, major = self.parse_mhdr(mhdr)
         if mtype == 1:
             encrypted_phypld = phypld[MHDR_LEN:]
-            print(bytes(encrypted_phypld).hex())
             macpldmic = self.joinacpt_decrypt(encrypted_phypld.tobytes())
             self.parse_joinacpt(mhdr, macpldmic)
         else:  # PULL RESP for app phypayload
@@ -1422,6 +1428,7 @@ class Mote:
         else:
             self.rjcount1 += 1
             mickey = self.jsintkey
+        self.save()
         field, rjcount = typ_field[typ]
         rejoin_f = rejoin_f.format(len(field))
         rjmsg = struct.pack(

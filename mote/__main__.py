@@ -104,16 +104,18 @@ def main():
                     raise NotImplementedError
                 gateway.push(udp_client, phypld, mote)
     except socket.timeout as e:
-        logger.error('Socket Timeout, remote server is unreachable')
+        logger.error('Socket Timeout, remote server is unreachable.')
     except AttributeError as e:
-        logger.error('You need to finish Join procedure before sending application data')
+        logger.error('You need to finish Join procedure before sending application data.')
         logger.exception(e)
+    except FileNotFoundError as e:
+        logger.error("Config files not found, please create a 'config' directory and copy config files inside, or specify the config path using '-c' option.")
     except (MICError, StructParseError, FOptsError, NewDeviceError, ActivationError) as e:
         logger.error(e)
     except NotImplementedError as e:
         logger.error(e)
     except json.decoder.JSONDecodeError as e:
-        logger.error('Bad config file format, please copy a new file from template')
+        logger.error('Bad config file format, please copy a new file from template.')
     except Exception as e:
         logger.exception(e)
 
