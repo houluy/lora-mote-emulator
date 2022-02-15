@@ -1,7 +1,7 @@
 import argparse
 
 def define_parser():
-    message_lst = ['join', 'app', 'pull', 'mac', 'rejoin', 'info', 'abp']
+    message_lst = ['join', 'app', 'pull', 'mac', 'rejoin', 'info', 'abp', 'create']
     parser = argparse.ArgumentParser(
         description=f'Tool to emulate LoRa mote (a.k.a end-device) and Gateway, supported command list: {message_lst}'
     )
@@ -66,6 +66,8 @@ def define_parser():
         type=str,
         default="./models",
     )
+    create_parser = sub_parsers.add_parser("create", help="Handle configurations.")
+
     return parser
 
 __all__ = ['define_parser']

@@ -13,11 +13,11 @@ import random
 import shutil
 import pathlib
 
-import mote.log
-from mote import mac, network
-from mote.cli import define_parser
-from mote.config import Config, load_config, parse_config
-from mote.exceptions import *
+from .log import logger
+from . import mac, network
+from .cli import define_parser
+from .config import Config, load_config, parse_config
+from .exceptions import *
 
 
 def init_gateway(args):
@@ -73,36 +73,48 @@ def main():
     logger = logging.getLogger('main')
     try:
         args = define_parser().parse_args()
-        gateway, udp_client = init_gateway(args)
-        if args.command == 'pull':
-            gateway.pull(udp_client)
-        else:
-            mote = init_mote(args)
-            if args.command == 'info':
-                print(mote)
-            elif args.command == 'abp':
-                logger.info('Device successfully been setup in ABP mode')
-                print(mote)
+        if args.command == 'create':
+            config_path = pathlib.Path(args.config)
+            if not config_path.exists():
+                config_path.mkdir()
+            tpl_path = pathlib.Path(__file__).parent / 'config'
+            config_lst = ['device', 'gateway', 'config', 'abp']
+            for cfile in config_lst:
+                tpl_file = (tpl_path / cfile).with_suffix('.json.tpl')
+                target_file = (config_path / cfile).with_suffix('.json')
+                shutil.copyfile(tpl_file, target_file)
+            logger.info(f'Config files created at location {config_path}')
+        else: 
+            gateway, udp_client = init_gateway(args)
+            if args.command == 'pull':
+                gateway.pull(udp_client)
             else:
-                if args.command == 'join':
-                    if mote.activation_mode == 'ABP':
-                        raise ActivationError(f'ABP device cannot issue {args.command} request')
-                    phypld = mote.form_join()
-                elif args.command == 'rejoin':
-                    if mote.activation_mode == 'ABP':
-                        raise ActivationError(f'ABP device cannot issue {args.command} request')
-                    phypld = mote.form_rejoin(args.rejointyp)
-                elif args.command == 'app':
-                    fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-                    fport = random.randint(1, 223)
-                    msg = args.msg.encode()
-                    phypld = mote.form_phypld(fport, msg, fopts, unconfirmed=args.unconfirmed, ack=args.ack)
-                elif args.command == 'mac':
-                    fport = 0
-                    phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed, ack=args.ack)
+                mote = init_mote(args)
+                if args.command == 'info':
+                    print(mote)
+                elif args.command == 'abp':
+                    logger.info('Device successfully been setup in ABP mode')
+                    print(mote)
                 else:
-                    raise NotImplementedError
-                gateway.push(udp_client, phypld, mote)
+                    if args.command == 'join':
+                        if mote.activation_mode == 'ABP':
+                            raise ActivationError(f'ABP device cannot issue {args.command} request')
+                        phypld = mote.form_join()
+                    elif args.command == 'rejoin':
+                        if mote.activation_mode == 'ABP':
+                            raise ActivationError(f'ABP device cannot issue {args.command} request')
+                        phypld = mote.form_rejoin(args.rejointyp)
+                    elif args.command == 'app':
+                        fopts = bytes.fromhex(args.fopts) if args.fopts else b''
+                        fport = random.randint(1, 223)
+                        msg = args.msg.encode()
+                        phypld = mote.form_phypld(fport, msg, fopts, unconfirmed=args.unconfirmed, ack=args.ack)
+                    elif args.command == 'mac':
+                        fport = 0
+                        phypld = mote.form_phypld(fport, bytes.fromhex(args.cmd), unconfirmed=args.unconfirmed, ack=args.ack)
+                    else:
+                        raise NotImplementedError
+                    gateway.push(udp_client, phypld, mote)
     except socket.timeout as e:
         logger.error('Socket Timeout, remote server is unreachable.')
     except AttributeError as e:
