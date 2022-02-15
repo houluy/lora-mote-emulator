@@ -3,3 +3,4 @@ config/*.json
 *.pyc
 models/*
 lorawan/
+upload_token

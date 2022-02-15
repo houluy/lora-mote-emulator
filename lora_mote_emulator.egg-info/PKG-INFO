@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: lora-mote-emulator
-Version: 1.0.1
+Version: 1.0.2
 Summary: Emulate LoRa mote (a.k.a end-device) and gateway.
 Home-page: UNKNOWN
 Author: Lu Hou
@@ -67,14 +67,8 @@ MANUALLY
   
 Here, if there is not Python 3.6 in your system, a warning will occur, and no package will be installed. It is perfect to install Python 3.6 from `source <https://www.python.org/downloads/release/python-362/>`_. Otherwise, remove the ``Pipfile.lock`` and redo the above command.
 
-- Run the emulator to see the help::
-
-    pipenv run python main.py -h
-
-or by::
-
-    pipenv shell
-    mote -h
+- Enter the virtual environment by ``pipenv shell`` 
+- Run ``mote -h`` to see the help message
 
 
 Usage
@@ -82,36 +76,42 @@ Usage
 
 ::
 
-    usage: mote [-h] [-v version] [-c CONFIG] [--model MODEL] {join,app,pull,cmd,rejoin,info,abp} ...
+	usage: mote [-h] [-v version] [-c CONFIG] [--model MODEL]
+				{join,app,pull,mac,rejoin,info,abp,create} ...
 
-    Tool to emulate LoRa mote (a.k.a end-device) and Gateway, supported command list: ['join', 'app', 'pull', 'cmd', 'rejoin', 'info', 'abp']
+	Tool to emulate LoRa mote (a.k.a end-device) and Gateway, supported command
+	list: ['join', 'app', 'pull', 'mac', 'rejoin', 'info', 'abp', 'create']
 
-    optional arguments:
-      -h, --help            show this help message and exit
-      -v version, --version version
-                            Choose LoRaWAN version, 1.0.2 or 1.1(default)
-      -c CONFIG, --config CONFIG
-                            Specify the directory of config files, default './config'
-      --model MODEL         Specify the directory to save the model file, default './models'
+	optional arguments:
+	  -h, --help            show this help message and exit
+	  -v version, --version version
+							Choose LoRaWAN version, 1.0.2 or 1.1(default)
+	  -c CONFIG, --config CONFIG
+							Specify the directory of config files, default
+							'./config'
+	  --model MODEL         Specify the directory to save the model file, default
+							'./models'
 
-    Supported commands:
-      {join,app,pull,mac,rejoin,info,abp}
-        join                Send join request.
-        app                 Send application data.
-        pull                Send PULL_DATA.
-        mac                 Send MACCommand.
-        rejoin              Send rejoin request.
-        info                Show information of current mote.
-        abp                 Initialize mote in ABP mode.
-			
+	Supported commands:
+	  {join,app,pull,mac,rejoin,info,abp,create}
+		join                Send join request.
+		app                 Send application data.
+		pull                Send PULL_DATA.
+		mac                 Send MACCommand.
+		rejoin              Send rejoin request.
+		info                Show information of current mote.
+		abp                 Initialize mote in ABP mode.
+		create              Handle configurations.
+    			
 Tutorial
 --------
 
-- First, we need to create a ``config`` directory to put config files in. It can be copy from github repo ``config/*.json.tpl`` template files. In the directory, several JSON config files are included.
-    + ``config.json``: Basic configurations.
-    + ``gateway.json``: Gateway EUI.
-    + ``device.json``: Device parameters for OTAA mode.
-    + ``abp.json``: Device parameters for ABP mode.
+- First, we need to create configuration files by command ``mote create [-c ./config]``. Mote will generate required config template JSON files in the `./config` directory (default). In the directory, several JSON config files are included.
+
++ ``config.json``: Basic configurations. 
++ ``gateway.json``: Gateway EUI. 
++ ``device.json``: Device parameters for OTAA mode. 
++ ``abp.json``: Device parameters for ABP mode.
 
 
 OTAA
