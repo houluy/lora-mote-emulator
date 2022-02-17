@@ -1,4 +1,5 @@
 LICENSE
+MANIFEST.in
 README.rst
 pyproject.toml
 setup.cfg
@@ -8,3 +9,16 @@ lora_mote_emulator.egg-info/dependency_links.txt
 lora_mote_emulator.egg-info/entry_points.txt
 lora_mote_emulator.egg-info/requires.txt
 lora_mote_emulator.egg-info/top_level.txt
+src/__init__.py
+src/__main__.py
+src/cli.py
+src/config.py
+src/exceptions.py
+src/log.py
+src/mac.py
+src/network.py
+src/template/abp.json.tpl
+src/template/config.json.tpl
+src/template/device.json.tpl
+src/template/device102.json.tpl
+src/template/gateway.json.tpl

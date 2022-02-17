@@ -66,10 +66,6 @@ def init_mote(args):
 
 
 def main():
-    """main
-
-    This is the main function
-    """
     logger = logging.getLogger('main')
     try:
         args = define_parser().parse_args()
@@ -77,7 +73,7 @@ def main():
             config_path = pathlib.Path(args.config)
             if not config_path.exists():
                 config_path.mkdir()
-            tpl_path = pathlib.Path(__file__).parent / 'config'
+            tpl_path = pathlib.Path(__file__).parent / 'template'
             config_lst = ['device', 'gateway', 'config', 'abp']
             for cfile in config_lst:
                 tpl_file = (tpl_path / cfile).with_suffix('.json.tpl')
@@ -121,6 +117,7 @@ def main():
         logger.error('You need to finish Join procedure before sending application data.')
         logger.exception(e)
     except FileNotFoundError as e:
+        print(e)
         logger.error("Config files not found, please create a 'config' directory and copy config files inside, or specify the config path using '-c' option.")
     except (MICError, StructParseError, FOptsError, NewDeviceError, ActivationError) as e:
         logger.error(e)

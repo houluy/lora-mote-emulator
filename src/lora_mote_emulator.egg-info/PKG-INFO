@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: lora-mote-emulator
-Version: 1.1.0
+Version: 1.0.8
 Summary: Emulate LoRa mote (a.k.a end-device) and gateway.
 Home-page: UNKNOWN
 Author: Lu Hou
@@ -8,8 +8,8 @@ Author-email: houlu8674@bupt.edu.cn
 License: MIT
 Keywords: LoRa,mote
 Platform: UNKNOWN
-Classifier: Development Status :: 3 - Alpha
-Classifier: Intended Audience :: Information Technology
+Classifier: Development Status :: 1 - Alpha
+Classifier: Intended Audience :: LoRa system developers
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Classifier: Programming Language :: Python
@@ -18,7 +18,7 @@ Classifier: Programming Language :: Python :: 3.7
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3.10
-Classifier: Topic :: Software Development :: Testing :: Traffic Generation
+Classifier: Topic :: Software Development :: Executable :: Python Modules
 License-File: LICENSE
 
 LoRa Mote Emulator
