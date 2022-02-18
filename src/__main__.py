@@ -125,6 +125,7 @@ def main():
         logger.error(e)
     except json.decoder.JSONDecodeError as e:
         logger.error('Bad config file format, please copy a new file from template.')
+        print(e)
     except Exception as e:
         logger.exception(e)
 

@@ -1,0 +1,288 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+    <title>Tutorials &#8212; lora-mote-emulator  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css" />
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="使用教程" href="tutorial_cn.html" />
+    <link rel="prev" title="Welcome to lora-motes-emulator’s documentation!" href="../index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="tutorials">
+<h1>Tutorials<a class="headerlink" href="#tutorials" title="Permalink to this headline">¶</a></h1>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">lora-mote-emulator</span></code> is developed by Python. It can emulate LoRa motes (a.k.a end-devices) and LoRa Gateways to send and receive LoRaWAN packages.
+It can be mainly utilized to test LoRaWAN servers.</p>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">lora-mote-emulator</span></code> supports Python 3.6+, and is distributed via Pypi. Therefore, we can directly use <code class="docutils literal notranslate"><span class="pre">pip</span></code> to install
+this program. Meanwhile, <code class="docutils literal notranslate"><span class="pre">pipenv</span></code> is recommended to manage virtual environments.</p>
+<p>1. Make sure Python &gt; 3.6 is installed on the machine, and <code class="docutils literal notranslate"><span class="pre">pip</span></code> is upgraded to the latest version. To upgrade <code class="docutils literal notranslate"><span class="pre">pip</span></code>, use
+<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">--upgrade</span> <span class="pre">pip</span></code> .</p>
+<ol class="arabic simple" start="2">
+<li><p>Install <code class="docutils literal notranslate"><span class="pre">pipenv</span></code>:</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">pipenv</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>Create a new virtual environment in an empty directory:</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipenv</span> <span class="o">--</span><span class="n">python</span> <span class="mi">3</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="4">
+<li><p>Install <code class="docutils literal notranslate"><span class="pre">lora-mote-emulator</span></code>:</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipenv</span> <span class="n">install</span> <span class="n">lora</span><span class="o">-</span><span class="n">mote</span><span class="o">-</span><span class="n">emulator</span>
+</pre></div>
+</div>
+<p>Now, the emulator is installed successfully.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
+<p>The emulator includes an executable <code class="docutils literal notranslate"><span class="pre">mote</span></code>, thus, <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">-h</span></code> can show the help message</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">usage</span><span class="p">:</span> <span class="n">mote</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">v</span> <span class="n">version</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">c</span> <span class="n">CONFIG</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">model</span> <span class="n">MODEL</span><span class="p">]</span>
+    <span class="p">{</span><span class="n">join</span><span class="p">,</span><span class="n">app</span><span class="p">,</span><span class="n">pull</span><span class="p">,</span><span class="n">mac</span><span class="p">,</span><span class="n">rejoin</span><span class="p">,</span><span class="n">info</span><span class="p">,</span><span class="n">abp</span><span class="p">,</span><span class="n">create</span><span class="p">}</span> <span class="o">...</span>
+
+<span class="n">Tool</span> <span class="n">to</span> <span class="n">emulate</span> <span class="n">LoRa</span> <span class="n">mote</span> <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">k</span><span class="o">.</span><span class="n">a</span> <span class="n">end</span><span class="o">-</span><span class="n">device</span><span class="p">)</span> <span class="ow">and</span> <span class="n">Gateway</span><span class="p">,</span> <span class="n">supported</span> <span class="n">command</span>
+<span class="nb">list</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;join&#39;</span><span class="p">,</span> <span class="s1">&#39;app&#39;</span><span class="p">,</span> <span class="s1">&#39;pull&#39;</span><span class="p">,</span> <span class="s1">&#39;mac&#39;</span><span class="p">,</span> <span class="s1">&#39;rejoin&#39;</span><span class="p">,</span> <span class="s1">&#39;info&#39;</span><span class="p">,</span> <span class="s1">&#39;abp&#39;</span><span class="p">,</span> <span class="s1">&#39;create&#39;</span><span class="p">]</span>
+
+<span class="n">optional</span> <span class="n">arguments</span><span class="p">:</span>
+    <span class="o">-</span><span class="n">h</span><span class="p">,</span> <span class="o">--</span><span class="n">help</span>              <span class="n">show</span> <span class="n">this</span> <span class="n">help</span> <span class="n">message</span> <span class="ow">and</span> <span class="n">exit</span>
+    <span class="o">-</span><span class="n">v</span> <span class="n">version</span><span class="p">,</span> <span class="o">--</span><span class="n">version</span> <span class="n">version</span>
+                            <span class="n">Choose</span> <span class="n">LoRaWAN</span> <span class="n">version</span><span class="p">,</span> <span class="mf">1.0.2</span> <span class="ow">or</span> <span class="mf">1.1</span><span class="p">(</span><span class="n">default</span><span class="p">)</span>
+    <span class="o">-</span><span class="n">c</span> <span class="n">CONFIG</span><span class="p">,</span> <span class="o">--</span><span class="n">config</span> <span class="n">CONFIG</span>
+                            <span class="n">Specify</span> <span class="n">the</span> <span class="n">directory</span> <span class="n">of</span> <span class="n">config</span> <span class="n">files</span><span class="p">,</span> <span class="n">default</span> <span class="s1">&#39;./config&#39;</span>
+    <span class="o">--</span><span class="n">model</span> <span class="n">MODEL</span>         <span class="n">Specify</span> <span class="n">the</span> <span class="n">directory</span> <span class="n">to</span> <span class="n">save</span> <span class="n">the</span> <span class="n">model</span> <span class="n">file</span><span class="p">,</span> <span class="n">default</span> <span class="s1">&#39;./models&#39;</span>
+
+<span class="n">Supported</span> <span class="n">commands</span><span class="p">:</span>
+    <span class="p">{</span><span class="n">join</span><span class="p">,</span><span class="n">app</span><span class="p">,</span><span class="n">pull</span><span class="p">,</span><span class="n">mac</span><span class="p">,</span><span class="n">rejoin</span><span class="p">,</span><span class="n">info</span><span class="p">,</span><span class="n">abp</span><span class="p">,</span><span class="n">create</span><span class="p">}</span>
+    <span class="n">join</span>                <span class="n">Send</span> <span class="n">join</span> <span class="n">request</span><span class="o">.</span>
+    <span class="n">app</span>                 <span class="n">Send</span> <span class="n">application</span> <span class="n">data</span><span class="o">.</span>
+    <span class="n">pull</span>                <span class="n">Send</span> <span class="n">PULL_DATA</span><span class="o">.</span>
+    <span class="n">mac</span>                 <span class="n">Send</span> <span class="n">MACCommand</span><span class="o">.</span>
+    <span class="n">rejoin</span>              <span class="n">Send</span> <span class="n">rejoin</span> <span class="n">request</span><span class="o">.</span>
+    <span class="n">info</span>                <span class="n">Show</span> <span class="n">information</span> <span class="n">of</span> <span class="n">current</span> <span class="n">mote</span><span class="o">.</span>
+    <span class="n">abp</span>                 <span class="n">Initialize</span> <span class="n">mote</span> <span class="ow">in</span> <span class="n">ABP</span> <span class="n">mode</span><span class="o">.</span>
+    <span class="n">create</span>              <span class="n">Handle</span> <span class="n">configurations</span><span class="o">.</span>
+</pre></div>
+</div>
+<section id="prepare-gateway">
+<h3>Prepare gateway<a class="headerlink" href="#prepare-gateway" title="Permalink to this headline">¶</a></h3>
+<p>1. At the very beginning, we need to create configuration files. Run <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">create</span> <span class="pre">[-c</span> <span class="pre">config_dir]</span></code> to generate configuration
+files at directory <code class="docutils literal notranslate"><span class="pre">config_dir</span></code> ( <code class="docutils literal notranslate"><span class="pre">./config</span></code> in default). The configuration files include <code class="docutils literal notranslate"><span class="pre">device.json</span></code>, <code class="docutils literal notranslate"><span class="pre">gateway.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">config.json</span></code>, and <code class="docutils literal notranslate"><span class="pre">abp.json</span></code>.</p>
+<ol class="arabic simple" start="2">
+<li><p>Modify the content of each configuration file:</p></li>
+</ol>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">config.json</span></code> includes the server’s IP address and port number, log level and timeout, etc.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gateway.json</span></code> includes the gateway’s extended unique identifier (EUI),</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">device.json</span></code> includes the detailed parameters of mote, i.e., <code class="docutils literal notranslate"><span class="pre">DevEUI</span></code>, <code class="docutils literal notranslate"><span class="pre">JoinEUI</span></code> and two root keys, i.e., <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> and <code class="docutils literal notranslate"><span class="pre">NwkKey</span></code>,</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">abp.json</span></code> includes required fields if mote is activated via Activation by Personalization (ABP) mode.</p></li>
+</ul>
+<p>3. Before mote sending message, the gateway needs to register the IP address to server via <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> message.
+( <strong>Note</strong>: Some LoRaWAN servers may require gateways to send <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> periodically to keep-alive. Therefore, if we
+get nothing from servers, we can send a <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> first, then re-try the message. To send a <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> message,
+use following command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">pull</span>
+</pre></div>
+</div>
+<p>4. If <code class="docutils literal notranslate"><span class="pre">INFO</span> <span class="pre">-</span> <span class="pre">PULL</span> <span class="pre">ACK</span> <span class="pre">-</span></code> logs, it means a <code class="docutils literal notranslate"><span class="pre">PULL_ACK</span></code> message is received from server. Since then, mote can send real
+LoRaWAN messages.</p>
+</section>
+<section id="mote-commands">
+<h3>Mote commands<a class="headerlink" href="#mote-commands" title="Permalink to this headline">¶</a></h3>
+<p>All the supported LoRaWAN uplink message types are as follows:</p>
+<ul class="simple">
+<li><p><em>Join Request</em> ,</p></li>
+<li><p><em>Confirmed Uplink</em> ,</p></li>
+<li><p><em>Unconfirmed Uplink</em> ,</p></li>
+<li><p><em>Rejoin Request</em> ,</p></li>
+<li><p><em>MACCommand</em> ,</p></li>
+</ul>
+<p>Downlink message types include：</p>
+<ul class="simple">
+<li><p><em>Join Accept</em> ,</p></li>
+<li><p><em>Confirmed Downlink</em> ,</p></li>
+<li><p><em>Unconfirmed Downlink</em> 。</p></li>
+</ul>
+<section id="activation">
+<h4>Activation<a class="headerlink" href="#activation" title="Permalink to this headline">¶</a></h4>
+<p>First of all, the mote needs to be activated before using. There are two modes of activations, i.e., Over-the-air Activation (OTAA),
+and ABP.</p>
+<section id="otaa">
+<h5>OTAA<a class="headerlink" href="#otaa" title="Permalink to this headline">¶</a></h5>
+<p>OTAA stands for the activation by which mote need to negotiate with server to establish session and generate various
+session keys. To activate mote in OTAA mode, do the following:</p>
+<ol class="arabic simple">
+<li><p>Register application and mote EUI (JoinEUI and DevEUI), and the two root keys,</p></li>
+<li><p>Modify <code class="docutils literal notranslate"><span class="pre">device.json</span></code> config file,</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">pull</span></code> ,</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">join</span> <span class="pre">-n</span></code> , where <code class="docutils literal notranslate"><span class="pre">-n</span></code> option means to establish brand new session which may override the old one.</p></li>
+<li><p>When the log shows  <code class="docutils literal notranslate"><span class="pre">INFO</span> <span class="pre">-</span> <span class="pre">Join</span> <span class="pre">Accept</span> <span class="pre">(MIC</span> <span class="pre">verified)</span></code> , it means that a <em>Join Accept</em> message is received and the message integrity code (MIC) is verified. Now the mote has been activated, and can be used to send application messages.</p></li>
+</ol>
+</section>
+<section id="abp">
+<h5>ABP<a class="headerlink" href="#abp" title="Permalink to this headline">¶</a></h5>
+<p>ABP mode means that the session parameters are preset in both server and mote sides, making them able to communicate directly.
+The process is shown as follows:</p>
+<ol class="arabic simple">
+<li><p>Set the activation mode to be ABP on LoRaWAN server, and set all the session parameters,</p></li>
+<li><p>Modify <code class="docutils literal notranslate"><span class="pre">abp.json</span></code> file on all fields,</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">abp</span></code>. If the mote information is printed, the ABP activation succeeds.</p></li>
+</ol>
+</section>
+</section>
+<section id="uplink-downlink-application-message">
+<h4>Uplink &amp; Downlink Application message<a class="headerlink" href="#uplink-downlink-application-message" title="Permalink to this headline">¶</a></h4>
+<p>After activation, the mode can send and receive application data. Downlink message can <strong>only</strong> be received after sending
+an uplink message successfully. To send uplink message, use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">app</span> <span class="p">[</span><span class="o">-</span><span class="n">au</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">f</span> <span class="n">fopts</span><span class="p">]</span> <span class="p">[</span><span class="n">msg</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>where <code class="docutils literal notranslate"><span class="pre">-a</span></code> option means to set the <strong>ACK</strong> flag in uplink package, <code class="docutils literal notranslate"><span class="pre">-u</span></code> option stands for <em>Unconfirmed Uplink</em> message type,
+and <code class="docutils literal notranslate"><span class="pre">-f</span> <span class="pre">fopts</span></code> means the package include <em>FOpts</em> (MACCommands). <code class="docutils literal notranslate"><span class="pre">msg</span></code> is the actual string that needs to be sent, and
+it will be encoded by <code class="docutils literal notranslate"><span class="pre">UTF-8</span></code>. For example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">app</span> <span class="o">-</span><span class="n">au</span> <span class="o">-</span><span class="n">f</span> <span class="mi">01</span> <span class="n">hello_world</span>
+</pre></div>
+</div>
+<p>means send an <em>Unconfirmed Uplink</em> message, set the <strong>ACK</strong> flag, and include <em>FOpts</em>  <code class="docutils literal notranslate"><span class="pre">0x01</span></code> . The application message
+is the string <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> .</p>
+<p>According to different implementation of LoRaWAN server, the downlink messages could be quite different. There may also
+be no reply ( <em>Unconfirmed Uplink</em> ). <code class="docutils literal notranslate"><span class="pre">lora-mote-emulator</span></code> will wait until timeout.</p>
+<p>When a downlink message is received, the command line will display message <code class="docutils literal notranslate"><span class="pre">INFO</span> <span class="pre">-</span> <span class="pre">Downlink</span> <span class="pre">MACPayload</span> <span class="pre">(MIC</span> <span class="pre">verified)</span></code>,
+and show some important fields.</p>
+</section>
+<section id="rejoin-request">
+<h4>Rejoin request<a class="headerlink" href="#rejoin-request" title="Permalink to this headline">¶</a></h4>
+<p>Our program supports to send all three types of <em>Rejoin Request</em> (New in LoRaWAN Version 1.1.0), e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">rejoin</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>If server agrees the request, it will reply with <em>Join Accept</em> message.</p>
+</section>
+<section id="maccommand">
+<h4>MACCommand<a class="headerlink" href="#maccommand" title="Permalink to this headline">¶</a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">mote</span></code> can send <em>MACCommand</em> via <em>FRMPayload</em> field, i.e. <em>FPorts = 0</em>. The command is as follow:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">mac</span> <span class="p">[</span><span class="o">-</span><span class="n">au</span><span class="p">]</span> <span class="p">[</span><span class="n">cmd</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>where <code class="docutils literal notranslate"><span class="pre">-au</span></code> act the same as in <code class="docutils literal notranslate"><span class="pre">app</span></code> , and <code class="docutils literal notranslate"><span class="pre">[cmd]</span></code> stands for the actual commands (in hex string form) that needs
+to be sent. For example, to send <code class="docutils literal notranslate"><span class="pre">0x01</span></code> , use:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">mac</span> <span class="mi">01</span>
+</pre></div>
+</div>
+</section>
+<section id="check-mote-information">
+<h4>Check mote information<a class="headerlink" href="#check-mote-information" title="Permalink to this headline">¶</a></h4>
+<p>Use <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">info</span></code> to display the information of current mote.</p>
+</section>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora-mote-emulator</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial_cn.html">使用教程</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../integration/ChirpStack/chirpstack.html">Use ChirpStack as LoRa Server</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="../index.html" title="previous chapter">Welcome to lora-motes-emulator’s documentation!</a></li>
+      <li>Next: <a href="tutorial_cn.html" title="next chapter">使用教程</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2019, houlu.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 4.4.0</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="../_sources/tutorials/tutorial.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

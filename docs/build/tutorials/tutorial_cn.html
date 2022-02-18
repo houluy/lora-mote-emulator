@@ -1,0 +1,277 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+    <title>使用教程 &#8212; lora-mote-emulator  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css" />
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Use ChirpStack as LoRa Server" href="../integration/ChirpStack/chirpstack.html" />
+    <link rel="prev" title="Tutorials" href="tutorial.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="id1">
+<h1>使用教程<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h1>
+<section id="id2">
+<h2>简介<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h2>
+<p>本程序基于Python语言开发，能够模拟LoRa终端及网关收发LoRaWAN数据包的功能，用于LoRa服务器的正确性测试。</p>
+</section>
+<section id="id3">
+<h2>安装<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h2>
+<p>本程序支持Python 3.6+版本，跨平台。建议采用 <code class="docutils literal notranslate"><span class="pre">pipenv</span></code> 管理依赖环境。</p>
+<ol class="arabic simple">
+<li><p>确保机器中已安装Python &gt; 3.6，且pip已升级至最新版本。（升级pip：<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">--upgrade</span> <span class="pre">pip</span></code>）</p></li>
+<li><p>建议安装 <code class="docutils literal notranslate"><span class="pre">pipenv</span></code>：</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">pipenv</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>在一个空目录下创建新的虚拟环境：</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipenv</span> <span class="o">--</span><span class="n">python</span> <span class="mi">3</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="4">
+<li><p>修改 <code class="docutils literal notranslate"><span class="pre">Pipfile</span></code> 文件，将 <code class="docutils literal notranslate"><span class="pre">pypi</span></code> 源改为国内镜像以提高访问速度，例如，清华源 <code class="docutils literal notranslate"><span class="pre">https://pypi.tuna.tsinghua.edu.cn/simple</span></code>。</p></li>
+<li><p>安装本程序：</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pipenv</span> <span class="n">install</span> <span class="n">lora</span><span class="o">-</span><span class="n">mote</span><span class="o">-</span><span class="n">emulator</span>
+</pre></div>
+</div>
+<p>至此，本程序已正确安装至虚拟环境中。</p>
+</section>
+<section id="id4">
+<h2>使用方法<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h2>
+<p>本程序包含一个可执行脚本 <code class="docutils literal notranslate"><span class="pre">mote</span></code> ，可以通过 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">-h</span></code> 查看完整帮助信息</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">usage</span><span class="p">:</span> <span class="n">mote</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">v</span> <span class="n">version</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">c</span> <span class="n">CONFIG</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">model</span> <span class="n">MODEL</span><span class="p">]</span>
+    <span class="p">{</span><span class="n">join</span><span class="p">,</span><span class="n">app</span><span class="p">,</span><span class="n">pull</span><span class="p">,</span><span class="n">mac</span><span class="p">,</span><span class="n">rejoin</span><span class="p">,</span><span class="n">info</span><span class="p">,</span><span class="n">abp</span><span class="p">,</span><span class="n">create</span><span class="p">}</span> <span class="o">...</span>
+
+<span class="n">Tool</span> <span class="n">to</span> <span class="n">emulate</span> <span class="n">LoRa</span> <span class="n">mote</span> <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">k</span><span class="o">.</span><span class="n">a</span> <span class="n">end</span><span class="o">-</span><span class="n">device</span><span class="p">)</span> <span class="ow">and</span> <span class="n">Gateway</span><span class="p">,</span> <span class="n">supported</span> <span class="n">command</span>
+<span class="nb">list</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;join&#39;</span><span class="p">,</span> <span class="s1">&#39;app&#39;</span><span class="p">,</span> <span class="s1">&#39;pull&#39;</span><span class="p">,</span> <span class="s1">&#39;mac&#39;</span><span class="p">,</span> <span class="s1">&#39;rejoin&#39;</span><span class="p">,</span> <span class="s1">&#39;info&#39;</span><span class="p">,</span> <span class="s1">&#39;abp&#39;</span><span class="p">,</span> <span class="s1">&#39;create&#39;</span><span class="p">]</span>
+
+<span class="n">optional</span> <span class="n">arguments</span><span class="p">:</span>
+    <span class="o">-</span><span class="n">h</span><span class="p">,</span> <span class="o">--</span><span class="n">help</span>              <span class="n">show</span> <span class="n">this</span> <span class="n">help</span> <span class="n">message</span> <span class="ow">and</span> <span class="n">exit</span>
+    <span class="o">-</span><span class="n">v</span> <span class="n">version</span><span class="p">,</span> <span class="o">--</span><span class="n">version</span> <span class="n">version</span>
+                            <span class="n">Choose</span> <span class="n">LoRaWAN</span> <span class="n">version</span><span class="p">,</span> <span class="mf">1.0.2</span> <span class="ow">or</span> <span class="mf">1.1</span><span class="p">(</span><span class="n">default</span><span class="p">)</span>
+    <span class="o">-</span><span class="n">c</span> <span class="n">CONFIG</span><span class="p">,</span> <span class="o">--</span><span class="n">config</span> <span class="n">CONFIG</span>
+                            <span class="n">Specify</span> <span class="n">the</span> <span class="n">directory</span> <span class="n">of</span> <span class="n">config</span> <span class="n">files</span><span class="p">,</span> <span class="n">default</span> <span class="s1">&#39;./config&#39;</span>
+    <span class="o">--</span><span class="n">model</span> <span class="n">MODEL</span>         <span class="n">Specify</span> <span class="n">the</span> <span class="n">directory</span> <span class="n">to</span> <span class="n">save</span> <span class="n">the</span> <span class="n">model</span> <span class="n">file</span><span class="p">,</span> <span class="n">default</span> <span class="s1">&#39;./models&#39;</span>
+
+<span class="n">Supported</span> <span class="n">commands</span><span class="p">:</span>
+    <span class="p">{</span><span class="n">join</span><span class="p">,</span><span class="n">app</span><span class="p">,</span><span class="n">pull</span><span class="p">,</span><span class="n">mac</span><span class="p">,</span><span class="n">rejoin</span><span class="p">,</span><span class="n">info</span><span class="p">,</span><span class="n">abp</span><span class="p">,</span><span class="n">create</span><span class="p">}</span>
+    <span class="n">join</span>                <span class="n">Send</span> <span class="n">join</span> <span class="n">request</span><span class="o">.</span>
+    <span class="n">app</span>                 <span class="n">Send</span> <span class="n">application</span> <span class="n">data</span><span class="o">.</span>
+    <span class="n">pull</span>                <span class="n">Send</span> <span class="n">PULL_DATA</span><span class="o">.</span>
+    <span class="n">mac</span>                 <span class="n">Send</span> <span class="n">MACCommand</span><span class="o">.</span>
+    <span class="n">rejoin</span>              <span class="n">Send</span> <span class="n">rejoin</span> <span class="n">request</span><span class="o">.</span>
+    <span class="n">info</span>                <span class="n">Show</span> <span class="n">information</span> <span class="n">of</span> <span class="n">current</span> <span class="n">mote</span><span class="o">.</span>
+    <span class="n">abp</span>                 <span class="n">Initialize</span> <span class="n">mote</span> <span class="ow">in</span> <span class="n">ABP</span> <span class="n">mode</span><span class="o">.</span>
+    <span class="n">create</span>              <span class="n">Handle</span> <span class="n">configurations</span><span class="o">.</span>
+</pre></div>
+</div>
+<section id="id5">
+<h3>网关准备<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h3>
+<p>1. 在初次使用程序时，需要运行 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">create</span> <span class="pre">[-c</span> <span class="pre">config_dir]</span></code> 来创建默认配置文件，
+包括 <code class="docutils literal notranslate"><span class="pre">device.json</span></code> , <code class="docutils literal notranslate"><span class="pre">gateway.json</span></code>, <code class="docutils literal notranslate"><span class="pre">config.json</span></code>, <code class="docutils literal notranslate"><span class="pre">abp.json</span></code>。 <code class="docutils literal notranslate"><span class="pre">-c</span></code> 为可选参数，
+用于指定配置文件生成的目录，默认为 <code class="docutils literal notranslate"><span class="pre">./config</span></code> 。</p>
+<ol class="arabic" start="2">
+<li><p>修改配置文件的内容，其中：</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">config.json</span></code> 中包含目标服务器的IP地址及端口号，日志层级，超时时间等；</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gateway.json</span></code> 中包含网关的标识符（Extended Unique Identifier, EUI）；</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">device.json</span></code> 中包含终端的详细信息，包括 <code class="docutils literal notranslate"><span class="pre">DevEUI</span></code> , <code class="docutils literal notranslate"><span class="pre">JoinEUI</span></code> 以及两个根密钥 <code class="docutils literal notranslate"><span class="pre">AppKey</span></code> , <code class="docutils literal notranslate"><span class="pre">NwkKey</span></code> ;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">abp.json</span></code> 如果终端采用个性化激活（Activation by Personalization, ABP）模式入网，则需要修改本配置文件，其中包括设备激活所需的所有字段信息，例如各种会话密钥、终端网络地址等；</p></li>
+</ul>
+</div></blockquote>
+</li>
+<li><p>在开始发送终端消息前，必须先通过网关的 <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> 注册网关的IP地址到服务器（ <strong>重要</strong> ： 部分LoRaWAN服务的实现要求网关定期发送 <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> 保持连通性，因此，当无法收到下行数据时，可以尝试 <strong>重新发送</strong> <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> 消息）。 <code class="docutils literal notranslate"><span class="pre">PULL_DATA</span></code> 发送命令如下：</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">pull</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="4">
+<li><p>当产生如下日志时，表明收到了服务器返回的 <code class="docutils literal notranslate"><span class="pre">PULL_ACK</span></code> 消息，后续可以进行终端的相关操作。</p></li>
+</ol>
+</section>
+<section id="id6">
+<h3>终端命令<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h3>
+<p>本程序支持的LoRaWAN上行消息包括：</p>
+<ul class="simple">
+<li><p><em>Join Request</em> ,</p></li>
+<li><p><em>Confirmed Uplink</em> ,</p></li>
+<li><p><em>Unconfirmed Uplink</em> ,</p></li>
+<li><p><em>Rejoin Request</em> ,</p></li>
+<li><p><em>MACCommand</em> ,</p></li>
+</ul>
+<p>下行消息包括：</p>
+<ul class="simple">
+<li><p><em>Join Accept</em> ,</p></li>
+<li><p><em>Confirmed Downlink</em> ,</p></li>
+<li><p><em>Unconfirmed Downlink</em> 。</p></li>
+</ul>
+<section id="id7">
+<h4>激活<a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h4>
+<p>首先，终端需要入网后才能继续使用，入网有两种模式，即**空口入网（Over-the-air Activation, OTAA）** 和**ABP**模式。</p>
+<section id="otaa">
+<h5>OTAA<a class="headerlink" href="#otaa" title="Permalink to this headline">¶</a></h5>
+<p>OTAA是指终端和服务器以协商的方式完成入网，建立会话，并生成各类会话密钥。其过程如下：</p>
+<ol class="arabic simple">
+<li><p>首先需要在LoRaWAN服务器上注册应用及终端EUI，以及两个根密钥；</p></li>
+<li><p>修改 <code class="docutils literal notranslate"><span class="pre">device.json</span></code> 文件对应字段；</p></li>
+<li><p>运行 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">pull</span></code> ；</p></li>
+<li><p>运行 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">join</span> <span class="pre">-n</span></code> ，其中可选参数 <code class="docutils literal notranslate"><span class="pre">-n</span></code> 表示建立全新的会话，覆盖以前的终端；</p></li>
+<li><p>当返回日志中显示 <code class="docutils literal notranslate"><span class="pre">INFO</span> <span class="pre">-</span> <span class="pre">Join</span> <span class="pre">Accept</span> <span class="pre">(MIC</span> <span class="pre">verified)</span></code> 表示收到了 <em>Join Accept</em> 消息且经过了消息完整性码（Message Integrity Code, MIC）校验。此时终端入网成功，可以正常发送上行应用数据。</p></li>
+</ol>
+</section>
+<section id="abp">
+<h5>ABP<a class="headerlink" href="#abp" title="Permalink to this headline">¶</a></h5>
+<p>ABP是指直接在服务器和终端侧将会话字段预设，然后直接进行通信对方式。其过程如下：</p>
+<ol class="arabic simple">
+<li><p>首先需要在LoRaWAN服务器上设置终端激活模式为ABP，并设置好会话字段；</p></li>
+<li><p>修改 <code class="docutils literal notranslate"><span class="pre">abp.json</span></code> 配置文件各个对应字段；</p></li>
+<li><p>运行 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">abp</span></code> ，将打印出终端信息，表示已设置成功，可以进行应用数据发送；</p></li>
+</ol>
+</section>
+</section>
+<section id="id8">
+<h4>上下行应用数据<a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h4>
+<p>终端激活成功后，可以实现上下行数据发送接收。下行数据只能在发送 <strong>上行数据之后</strong> 才能接收到。上行应用数据命令如下：</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">app</span> <span class="p">[</span><span class="o">-</span><span class="n">au</span><span class="p">]</span> <span class="p">[</span><span class="o">-</span><span class="n">f</span> <span class="n">fopts</span><span class="p">]</span> <span class="p">[</span><span class="n">msg</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>其中，可选参数 <code class="docutils literal notranslate"><span class="pre">-a</span></code> 表示将上行数据的 <strong>ACK</strong> 比特位置位， <code class="docutils literal notranslate"><span class="pre">-u</span></code> 表示发送 <em>Unconfirmed Uplink</em> ， <code class="docutils literal notranslate"><span class="pre">-f</span> <span class="pre">fopts</span></code> 表示应用数据中包含 <em>FOpts</em> （MACCommands）， <code class="docutils literal notranslate"><span class="pre">msg</span></code> 为实际需要发送的字符串，将由 <code class="docutils literal notranslate"><span class="pre">UTF-8</span></code> 编码，例如：</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">app</span> <span class="o">-</span><span class="n">au</span> <span class="o">-</span><span class="n">f</span> <span class="mi">01</span> <span class="n">hello_world</span>
+</pre></div>
+</div>
+<p>表示发送 <em>Unconfirmed Uplink</em> 消息， <strong>ACK</strong> 比特位置位，包含 <em>FOpts</em>  <code class="docutils literal notranslate"><span class="pre">0x01</span></code> ，应用消息为字符串 <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> 。</p>
+<p>根据不同的LoRaWAN服务器实现，终端可能收到不同的下行消息，也可能收不到回复（ <em>Unconfirmed Uplink</em> ）。本程序将等待一定时间（ <code class="docutils literal notranslate"><span class="pre">config.json</span></code> 中 <code class="docutils literal notranslate"><span class="pre">timeout</span></code> 字段）后超时停止。</p>
+<p>当收到下行消息时，命令行将显示 <code class="docutils literal notranslate"><span class="pre">INFO</span> <span class="pre">-</span> <span class="pre">Downlink</span> <span class="pre">MACPayload</span> <span class="pre">(MIC</span> <span class="pre">verified)</span></code>，并显示该消息中的关键字段。</p>
+</section>
+<section id="id9">
+<h4>重新入网请求<a class="headerlink" href="#id9" title="Permalink to this headline">¶</a></h4>
+<p>本程序支持发送三类 <em>Rejoin Request</em> 请求（LoRaWAN Version 1.1.0新增），请求格式如下：</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">rejoin</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>服务器若同意请求，则返回 <em>Join Accept</em> 消息。</p>
+</section>
+<section id="maccommand">
+<h4>MACCommand<a class="headerlink" href="#maccommand" title="Permalink to this headline">¶</a></h4>
+<p>本程序支持通过 <em>FRMPayload</em> 发送 <em>MACCommand</em> 命令，即 <em>FPorts = 0</em> ，请求格式如下：</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">mac</span> <span class="p">[</span><span class="o">-</span><span class="n">au</span><span class="p">]</span> <span class="p">[</span><span class="n">cmd</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>其中，可选参数 <code class="docutils literal notranslate"><span class="pre">-au</span></code> 作用和应用消息一致； <code class="docutils literal notranslate"><span class="pre">[cmd]</span></code> 表示实际发送的MACCommand指令的十六进制字符串形式。例如，发送 <code class="docutils literal notranslate"><span class="pre">0x01</span></code> ，则采用如下命令：</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">mote</span> <span class="n">mac</span> <span class="mi">01</span>
+</pre></div>
+</div>
+</section>
+<section id="id10">
+<h4>查看终端信息<a class="headerlink" href="#id10" title="Permalink to this headline">¶</a></h4>
+<p>查看终端信息采用 <code class="docutils literal notranslate"><span class="pre">mote</span> <span class="pre">info</span></code> 即可。</p>
+</section>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">lora-mote-emulator</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="tutorial.html">Tutorials</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">使用教程</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#id2">简介</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id3">安装</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id4">使用方法</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../integration/ChirpStack/chirpstack.html">Use ChirpStack as LoRa Server</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="tutorial.html" title="previous chapter">Tutorials</a></li>
+      <li>Next: <a href="../integration/ChirpStack/chirpstack.html" title="next chapter">Use ChirpStack as LoRa Server</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2019, houlu.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 4.4.0</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="../_sources/tutorials/tutorial_cn.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

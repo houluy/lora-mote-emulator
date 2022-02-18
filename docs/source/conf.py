@@ -17,7 +17,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'lora-motes-emulator'
+project = 'lora-mote-emulator'
 copyright = '2019, houlu'
 author = 'houlu'
 
