@@ -80,6 +80,9 @@ def main():
                 target_file = (config_path / cfile).with_suffix('.json')
                 shutil.copyfile(tpl_file, target_file)
             logger.info(f'Config files created at location {config_path}')
+        elif args.command == 'version':
+            from .version import __version__
+            print(f"lora-mote-emulator version: {__version__}")
         else: 
             gateway, udp_client = init_gateway(args)
             if args.command == 'pull':
@@ -102,7 +105,8 @@ def main():
                         phypld = mote.form_rejoin(args.rejointyp)
                     elif args.command == 'app':
                         fopts = bytes.fromhex(args.fopts) if args.fopts else b''
-                        fport = random.randint(1, 223)
+                        fport = getattr(args, "fport", None)
+                        fport = fport if fport is not None else random.randint(1, 223)
                         msg = args.msg.encode()
                         phypld = mote.form_phypld(fport, msg, fopts, unconfirmed=args.unconfirmed, ack=args.ack)
                     elif args.command == 'mac':

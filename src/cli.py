@@ -1,9 +1,22 @@
 import argparse
 
 def define_parser():
-    message_lst = ['join', 'app', 'pull', 'mac', 'rejoin', 'info', 'abp', 'create']
+    message_lst = ['join', 'app', 'pull', 'mac', 'rejoin', 'info', 'abp', 'create', 'version']
     parser = argparse.ArgumentParser(
         description=f'Tool to emulate LoRa mote (a.k.a end-device) and Gateway, supported command list: {message_lst}'
+    )
+    parser.add_argument(
+        '-c',
+        '--config',
+        help="Specify the directory of config files, default './config'",
+        type=str,
+        default="./config",
+    )
+    parser.add_argument(
+        '--model',
+        help="Specify the directory to save the model file, default './models'",
+        type=str,
+        default="./models",
     )
     sub_parsers = parser.add_subparsers(title="Supported commands", dest="command")
     join_parser = sub_parsers.add_parser("join", help="Send join request.", description="Send a join request using parameters in the config file.")
@@ -13,13 +26,24 @@ def define_parser():
     )
     app_parser = sub_parsers.add_parser("app", help="Send application data.", description="Send a normal application data, and fetch the downlink message if there is any.")
     app_parser.add_argument(
-        '-f', help='MAC Command in FOpts field', dest='fopts'
+        '-f', help='MAC Command in FOpts field.', dest='fopts'
     )
     app_parser.add_argument(
-        '-u', '--unconfirmed', help='Enable unconfirmed data up', dest='unconfirmed', action='store_true'
+        '-u', '--unconfirmed', help='Enable unconfirmed data up.', dest='unconfirmed', action='store_true'
     )
     app_parser.add_argument(
-        '-a', '--ack', help=('Identity an acknowledgement of downlink message'), dest='ack', action='store_true'
+        '-a', '--ack', help=('Identity an acknowledgement of downlink message.'), dest='ack', action='store_true'
+    )
+
+    def check_fport(value):
+        ivalue = int(value)
+        if 0 < ivalue <= 223:
+            return ivalue
+        else:
+            raise argparse.ArgumentTypeError(f"FPort {ivalue} exceeds range [1, 223].")
+
+    app_parser.add_argument(
+        '-p', '--fport', help=('Specify the FPort of uplink message.'), dest='fport', type=check_fport
     )
     app_parser.add_argument(
         "msg", help="Message to be sent, 'str' required, default empty string.", default=""
@@ -38,35 +62,15 @@ def define_parser():
     rejoin_parser = sub_parsers.add_parser("rejoin", help="Send rejoin request.")
     rejoin_parser.add_argument(
         'rejointyp',
-        help="Specify rejoin type, 'int' required, default is 0",
+        help="Specify rejoin type, 'int' required, default is 0.",
         type=int,
         choices=[0, 1, 2],
         default=0,
     )
     info_parser = sub_parsers.add_parser("info", help="Show information of current mote.")
     abp_parser = sub_parsers.add_parser("abp", help="Initialize mote in ABP mode.")
-    parser.add_argument(
-        '-v',
-        '--version',
-        metavar='version',
-        help='Choose LoRaWAN version, 1.0.2 or 1.1(default)',
-        choices=['1.0.2', '1.1'],
-        default='1.1'
-    )
-    parser.add_argument(
-        '-c',
-        '--config',
-        help="Specify the directory of config files, default './config'",
-        type=str,
-        default="./config",
-    )
-    parser.add_argument(
-        '--model',
-        help="Specify the directory to save the model file, default './models'",
-        type=str,
-        default="./models",
-    )
     create_parser = sub_parsers.add_parser("create", help="Handle configurations.")
+    version_parser = sub_parsers.add_parser("version", help="Show program version.")
 
     return parser
 

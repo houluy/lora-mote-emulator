@@ -1158,13 +1158,13 @@ class Mote:
 
         if (cmic == mic):
             logger.info(
-                ('Join Accept (MIC verified) -\n'
+                ('-----Join Accept (MIC verified) -\n'
                     'Original data: {}\n'
-                    'MHDR: {},'
-                    'Join type: {},'
+                    'MHDR: {}, '
+                    'Join type: {}, '
                     'DevAddr: {}, '
                     'OptNeg: {}, '
-                    'CFList: {},'
+                    'CFList: {}.'
                 ).format(
                     joinacpt.hex(),
                     mhdr.hex(),
@@ -1307,11 +1307,11 @@ class Mote:
             logger.info(
                 ('Downlink MACPayload (MIC verified), Important Info:\n'
                     '\tMessage Type: {}\n'
-                    '\tFHDR dict: {}, '
+                    '\tDevAddr: {}, \n'
                     '\tFPort: {}, \n'
-                    '\tPayload: {}').format(
+                    '\tPayload: {}.').format(
                         message_type,
-                        fhdr_d,
+                        fhdr_d.get("devaddr").hex()[::-1],
                         fport,
                         frmpld,
                     ))
